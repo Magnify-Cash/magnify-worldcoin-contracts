@@ -8,7 +8,6 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 // Interface for interacting with MagnifyWorldV1
 interface IMagnifyWorldV1 {
-    function fetchLoanInfo(uint256 tokenId) external view returns (uint256 amountBorrowed, uint256 dueDate, uint256 totalDue);
     function loans(uint256 tokenId) external view returns (
         uint256 amount,
         uint256 startTime,
@@ -26,7 +25,6 @@ interface IMagnifyWorldV1 {
     function loanToken() external view returns (address tokenAddress);
     function PERMIT2() external view returns (address permit2Address);
     function tierCount() external view returns (uint256 count);
-    function checkOwnership(address owner, uint256 tokenId) external view returns (bool);
     function repayLoanWithPermit2(
         ISignatureTransfer.PermitTransferFrom calldata permitTransferFrom,
         ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
@@ -107,6 +105,83 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
     }
 
     /**
+     * @notice Retrieves loan details for a given NFT token ID.
+     * @param tokenId The ID of the NFT associated with the loan.
+     * @return amount The loan amount.
+     * @return startTime The timestamp when the loan was initiated.
+     * @return isActive Boolean indicating if the loan is currently active.
+     * @return interestRate The interest rate applied to the loan.
+     * @return loanPeriod The duration of the loan.
+     */
+    function loans(uint256 tokenId) external view returns (
+        uint256 amount,
+        uint256 startTime,
+        bool isActive,
+        uint256 interestRate,
+        uint256 loanPeriod
+    ) {
+        return v1.loans(tokenId);
+    }
+
+    /**
+     * @notice Retrieves the NFT token ID owned by a specific user.
+     * @param user The address of the user.
+     * @return tokenId The NFT token ID owned by the user.
+     */
+    function userNFT(address user) external view returns (uint256 tokenId) {
+        return v1.userNFT(user);
+    }
+
+    /**
+     * @notice Fetches the tier ID associated with a specific NFT token.
+     * @param tokenId The ID of the NFT.
+     * @return tierId The tier ID linked to the given NFT token.
+     */
+    function nftToTier(uint256 tokenId) external view returns (uint256 tierId) {
+        return v1.nftToTier(tokenId);
+    }
+
+    /**
+     * @notice Retrieves the details of a specific tier.
+     * @param tierId The ID of the tier.
+     * @return loanAmount The maximum loan amount allowed for this tier.
+     * @return interestRate The interest rate applicable to this tier.
+     * @return loanPeriod The duration of loans in this tier.
+     */
+    function tiers(uint256 tierId) external view returns (
+        uint256 loanAmount,
+        uint256 interestRate,
+        uint256 loanPeriod
+    ) {
+        return v1.tiers(tierId);
+    }
+
+    /**
+     * @notice Returns the address of the loan token used in the system.
+     * @return tokenAddress The address of the ERC20 token used for loans.
+     */
+    function loanToken() external view returns (address tokenAddress) {
+        return v1.loanToken();
+    }
+
+    /**
+     * @notice Returns the address of the PERMIT2 contract.
+     * @return permit2Address The address of the PERMIT2 contract.
+     */
+    function PERMIT2() external view returns (address permit2Address) {
+        return v1.PERMIT2();
+    }
+
+    /**
+     * @notice Retrieves the total number of tiers available in the system.
+     * @return count The total number of loan tiers.
+     */
+    function tierCount() external view returns (uint256 count) {
+        return v1.tierCount();
+    }
+
+
+    /**
      * @dev Allows a user to request a loan if certain conditions are met
      * @param amount The loan amount requested
      * @param interestRate The interest rate for the loan
@@ -170,7 +245,7 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
      * @dev Fetches the loan details of the caller from either V1 or V2
      * @return A tuple containing a boolean indicating if a loan is active and the loan details
      */
-    function fetchLoansByAddress() external view returns (bool, Loan memory) {
+    function fetchLoanByAddress() external view returns (bool, Loan memory) {
         // Check V1
         uint256 tokenId = v1.userNFT(msg.sender);
         (uint256 amount, uint256 startTime, bool isActive, uint256 interestRate, uint256 loanPeriod) = v1.loans(tokenId);
