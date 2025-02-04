@@ -70,7 +70,7 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
     IPermit2 public immutable PERMIT2;
 
     // Mappings
-    mapping(address => Loan) public v2Loans;
+    mapping(uint256 => Loan) public v2Loans;
 
     // Structs
     /**
@@ -90,7 +90,11 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
     }
 
     // Events
-    event LoanRequested(address indexed borrower, uint256 amount);
+    event LoanRequested(
+        uint256 indexed tokenId,
+        uint256 amount,
+        address borrower
+    );
     event LoanRepaid(address indexed borrower, uint256 amount);
     event LoanWithdrawn(uint256 amount);
 
@@ -157,22 +161,6 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @notice Returns the address of the loan token used in the system.
-     * @return tokenAddress The address of the ERC20 token used for loans.
-     */
-    function loanToken() external view returns (address tokenAddress) {
-        return v1.loanToken();
-    }
-
-    /**
-     * @notice Returns the address of the PERMIT2 contract.
-     * @return permit2Address The address of the PERMIT2 contract.
-     */
-    function PERMIT2() external view returns (address permit2Address) {
-        return v1.PERMIT2();
-    }
-
-    /**
      * @notice Retrieves the total number of tiers available in the system.
      * @return count The total number of loan tiers.
      */
@@ -180,27 +168,38 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
         return v1.tierCount();
     }
 
-
     /**
      * @dev Allows a user to request a loan if certain conditions are met
      * @param amount The loan amount requested
      * @param interestRate The interest rate for the loan
      * @param loanPeriod The duration of the loan
      */
-    function requestLoan(uint256 amount, uint256 interestRate, uint256 loanPeriod) external nonReentrant {
+    function requestLoan() external nonReentrant {
         // Check if user has an active loan in V1 or V2
-        uint256 token_id = v1.userNFT(msg.sender);
-        ( , , bool activeOnV1, , ) = v1.loans(token_id);
+        uint256 tokenId = v1.userNFT(msg.sender);
+        ( , , bool activeOnV1, , ) = v1.loans(tokenId);
         require(!activeOnV1, "Active loan on V1");
-        require(!v2Loans[msg.sender].isActive, "Active loan on V2");
+        require(!v2Loans[tokenId].isActive, "Active loan on V2");
 
-        // Ensure sufficient balance to issue loan
-        require(loanToken.balanceOf(address(this)) >= amount, "Insufficient contract balance");
+        // Verify collateral
+        uint256 tierId = nftToTier(tokenId);
+        if (tierId == 0 || tierId > v1.tierCount()) revert("Invalid tier parameters");
+        if (IERC721(address(v1)).ownerOf(tokenId) != msg.sender) revert("Not NFT owner");
+        (uint256 loanAmount, uint256 interestRate, uint256 loanPeriod) = v1.tiers(tierId);
+        if (loanToken.balanceOf(address(this)) < loanAmount)
+            revert("Insufficient contract balance");
 
         // Issue loan
-        v2Loans[msg.sender] = Loan(amount, block.timestamp, true, interestRate, loanPeriod);
-        require(loanToken.transfer(msg.sender, amount), "Transfer failed");
-        emit LoanRequested(msg.sender, amount);
+        v2Loans[tokenId] = Loan(
+            loanAmount,
+            block.timestamp,
+            true,
+            interestRate,
+            loanPeriod
+        );
+        if (!loanToken.transfer(msg.sender, loanAmount))
+            revert("Transfer failed");
+        emit LoanRequested(tokenId, loanAmount, msg.sender);
     }
 
     /**
@@ -215,8 +214,8 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
         bytes calldata signature
     ) external nonReentrant {
         // Check if user has an active loan in V1
-        uint256 token_id = v1.userNFT(msg.sender);
-        ( , , bool activeOnV1, , ) = v1.loans(token_id);
+        uint256 tokenId = v1.userNFT(msg.sender);
+        ( , , bool activeOnV1, , ) = v1.loans(tokenId);
         if (activeOnV1) {
             try v1.repayLoanWithPermit2(permitTransferFrom, transferDetails, signature) {
                 emit LoanRepaid(msg.sender, transferDetails.requestedAmount);
@@ -227,13 +226,13 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
         }
 
         // Check if user has an active loan in V2
-        Loan storage loan = v2Loans[msg.sender];
+        Loan storage loan = v2Loans[tokenId];
         if (loan.isActive) {
+            loan.isActive = false;
             uint256 interest = (loan.amount * loan.interestRate) / 10000;
             uint256 totalDue = loan.amount + interest;
             require(transferDetails.requestedAmount >= totalDue, "Insufficient repayment amount");
             PERMIT2.permitTransferFrom(permitTransferFrom, transferDetails, msg.sender, signature);
-            loan.isActive = false;
             emit LoanRepaid(msg.sender, totalDue);
             return;
         }
@@ -254,7 +253,7 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
         }
 
         // Check V2
-        Loan memory v2Loan = v2Loans[msg.sender];
+        Loan memory v2Loan = v2Loans[tokenId];
         if (v2Loan.isActive) {
             return (true, v2Loan);
         }
@@ -268,9 +267,8 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
      */
     function withdrawLoanToken() external onlyOwner {
         uint256 balanceV2 = loanToken.balanceOf(address(this));
-        if (balanceV2 > 0) {
-            require(loanToken.transfer(msg.sender, balanceV2), "Transfer failed");
-            emit LoanWithdrawn(balanceV2);
-        }
+        require(balanceV2 > 0, "No funds available");
+        require(loanToken.transfer(msg.sender, balanceV2), "Transfer failed");
+        emit LoanWithdrawn(balanceV2);
     }
 }
