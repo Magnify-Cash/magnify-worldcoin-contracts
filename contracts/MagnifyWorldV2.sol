@@ -197,8 +197,7 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
             interestRate,
             loanPeriod
         );
-        if (!loanToken.transfer(msg.sender, loanAmount))
-            revert("Transfer failed");
+        require(loanToken.transfer(msg.sender, loanAmount), "Transfer failed")
         emit LoanRequested(tokenId, loanAmount, msg.sender);
     }
 
@@ -213,7 +212,7 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
         ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
         bytes calldata signature
     ) external nonReentrant {
-        // Check if user has an active loan in V1
+        // V1 repayment
         uint256 tokenId = v1.userNFT(msg.sender);
         ( , , bool activeOnV1, , ) = v1.loans(tokenId);
         if (activeOnV1) {
@@ -225,13 +224,23 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
             }
         }
 
-        // Check if user has an active loan in V2
+        // V2 repayment
         Loan storage loan = v2Loans[tokenId];
         if (loan.isActive) {
             loan.isActive = false;
             uint256 interest = (loan.amount * loan.interestRate) / 10000;
             uint256 totalDue = loan.amount + interest;
             require(transferDetails.requestedAmount >= totalDue, "Insufficient repayment amount");
+            if (block.timestamp > loan.startTime + loan.loanPeriod)
+                revert("Loan is expired");
+            if (permitTransferFrom.permitted.token != address(loanToken))
+                revert("Invalid token");
+            if (permitTransferFrom.permitted.amount < total)
+                revert("Insufficient permit amount");
+            if (transferDetails.requestedAmount != total)
+                revert("Invalid requested amount");
+            if (transferDetails.to != address(this))
+                revert("Invalid transfer recipient");
             PERMIT2.permitTransferFrom(permitTransferFrom, transferDetails, msg.sender, signature);
             emit LoanRepaid(msg.sender, totalDue);
             return;
