@@ -95,8 +95,8 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
         uint256 amount,
         address borrower
     );
-    event LoanRepaid(address indexed borrower, uint256 amount);
-    event LoanWithdrawn(uint256 amount);
+    event LoanRepaid(uint256 indexed tokenId, uint256 repaymentAmount, address borrower);
+    event LoanTokensWithdrawn(uint256 amount);
 
     /**
      * @dev Constructor initializes the contract by setting the V1 contract, loan token, and PERMIT2 interface
@@ -170,24 +170,23 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
 
     /**
      * @dev Allows a user to request a loan if certain conditions are met
-     * @param amount The loan amount requested
-     * @param interestRate The interest rate for the loan
-     * @param loanPeriod The duration of the loan
      */
     function requestLoan() external nonReentrant {
-        // Check if user has an active loan in V1 or V2
+        // Validate NFT
         uint256 tokenId = v1.userNFT(msg.sender);
+        require(tokenId != 0, "No NFT owned");
+        require(IERC721(address(v1)).ownerOf(tokenId) == msg.sender, "Not NFT owner");
+        uint256 tierId = v1.nftToTier(tokenId);
+        require(tierId != 0 && tierId <= v1.tierCount(), "Invalid tier parameters");
+
+        // Check if user has an active loan in V1 or V2
         ( , , bool activeOnV1, , ) = v1.loans(tokenId);
         require(!activeOnV1, "Active loan on V1");
         require(!v2Loans[tokenId].isActive, "Active loan on V2");
 
         // Verify collateral
-        uint256 tierId = nftToTier(tokenId);
-        if (tierId == 0 || tierId > v1.tierCount()) revert("Invalid tier parameters");
-        if (IERC721(address(v1)).ownerOf(tokenId) != msg.sender) revert("Not NFT owner");
         (uint256 loanAmount, uint256 interestRate, uint256 loanPeriod) = v1.tiers(tierId);
-        if (loanToken.balanceOf(address(this)) < loanAmount)
-            revert("Insufficient contract balance");
+        require(loanToken.balanceOf(address(this)) >= loanAmount, "Insufficient contract balance");
 
         // Issue loan
         v2Loans[tokenId] = Loan(
@@ -197,7 +196,7 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
             interestRate,
             loanPeriod
         );
-        require(loanToken.transfer(msg.sender, loanAmount), "Transfer failed")
+        require(loanToken.transfer(msg.sender, loanAmount), "Transfer failed");
         emit LoanRequested(tokenId, loanAmount, msg.sender);
     }
 
@@ -212,16 +211,16 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
         ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
         bytes calldata signature
     ) external nonReentrant {
-        // V1 repayment
         uint256 tokenId = v1.userNFT(msg.sender);
+        require(tokenId != 0, "No NFT owned");
+        require(IERC721(address(v1)).ownerOf(tokenId) == msg.sender, "Not NFT owner");
+
+        // V1 repayment
         ( , , bool activeOnV1, , ) = v1.loans(tokenId);
         if (activeOnV1) {
-            try v1.repayLoanWithPermit2(permitTransferFrom, transferDetails, signature) {
-                emit LoanRepaid(msg.sender, transferDetails.requestedAmount);
-                return;
-            } catch {
-                revert("V1 repayment failed");
-            }
+            v1.repayLoanWithPermit2(permitTransferFrom, transferDetails, signature);
+            emit LoanRepaid(tokenId, transferDetails.requestedAmount, msg.sender);
+            return;
         }
 
         // V2 repayment
@@ -230,19 +229,17 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
             loan.isActive = false;
             uint256 interest = (loan.amount * loan.interestRate) / 10000;
             uint256 totalDue = loan.amount + interest;
-            require(transferDetails.requestedAmount >= totalDue, "Insufficient repayment amount");
-            if (block.timestamp > loan.startTime + loan.loanPeriod)
-                revert("Loan is expired");
+            require(block.timestamp <= loan.startTime + loan.loanPeriod, "Loan is expired");
             if (permitTransferFrom.permitted.token != address(loanToken))
                 revert("Invalid token");
-            if (permitTransferFrom.permitted.amount < total)
+            if (permitTransferFrom.permitted.amount < totalDue)
                 revert("Insufficient permit amount");
-            if (transferDetails.requestedAmount != total)
+            if (transferDetails.requestedAmount != totalDue)
                 revert("Invalid requested amount");
             if (transferDetails.to != address(this))
                 revert("Invalid transfer recipient");
             PERMIT2.permitTransferFrom(permitTransferFrom, transferDetails, msg.sender, signature);
-            emit LoanRepaid(msg.sender, totalDue);
+            emit LoanRepaid(tokenId, totalDue, msg.sender);
             return;
         }
 
@@ -253,9 +250,11 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
      * @dev Fetches the loan details of the caller from either V1 or V2
      * @return A tuple containing a boolean indicating if a loan is active and the loan details
      */
-    function fetchLoanByAddress() external view returns (bool, Loan memory) {
-        // Check V1
-        uint256 tokenId = v1.userNFT(msg.sender);
+    function fetchLoanByAddress(address wallet) external view returns (bool, Loan memory) {
+        // Get token ID
+        uint256 tokenId = v1.userNFT(wallet);
+
+        // Check v1
         (uint256 amount, uint256 startTime, bool isActive, uint256 interestRate, uint256 loanPeriod) = v1.loans(tokenId);
         if (isActive) {
             return (true, Loan(amount, startTime, isActive, interestRate, loanPeriod));
@@ -278,6 +277,6 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
         uint256 balanceV2 = loanToken.balanceOf(address(this));
         require(balanceV2 > 0, "No funds available");
         require(loanToken.transfer(msg.sender, balanceV2), "Transfer failed");
-        emit LoanWithdrawn(balanceV2);
+        emit LoanTokensWithdrawn(balanceV2);
     }
 }
