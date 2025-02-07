@@ -8,23 +8,36 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 // Interface for interacting with MagnifyWorldV1
 interface IMagnifyWorldV1 {
-    function loans(uint256 tokenId) external view returns (
-        uint256 amount,
-        uint256 startTime,
-        bool isActive,
-        uint256 interestRate,
-        uint256 loanPeriod
-    );
+    function loans(
+        uint256 tokenId
+    )
+        external
+        view
+        returns (
+            uint256 amount,
+            uint256 startTime,
+            bool isActive,
+            uint256 interestRate,
+            uint256 loanPeriod
+        );
+
     function userNFT(address user) external view returns (uint256 tokenId);
+
     function nftToTier(uint256 tokenId) external view returns (uint256 tierId);
-    function tiers(uint256 tierId) external view returns (
-        uint256 loanAmount,
-        uint256 interestRate,
-        uint256 loanPeriod
-    );
+
+    function tiers(
+        uint256 tierId
+    )
+        external
+        view
+        returns (uint256 loanAmount, uint256 interestRate, uint256 loanPeriod);
+
     function loanToken() external view returns (address tokenAddress);
+
     function PERMIT2() external view returns (address permit2Address);
+
     function tierCount() external view returns (uint256 count);
+
     function repayLoanWithPermit2(
         ISignatureTransfer.PermitTransferFrom calldata permitTransferFrom,
         ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
@@ -82,11 +95,11 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
      * @param loanPeriod Duration of this specific loan
      */
     struct Loan {
-        uint256 amount;         // Loan amount in the specified token
-        uint256 startTime;      // Timestamp when the loan was issued
-        bool isActive;          // Status of the loan
-        uint256 interestRate;   // Interest rate applied on the loan
-        uint256 loanPeriod;     // Duration of the loan
+        uint256 amount; // Loan amount in the specified token
+        uint256 startTime; // Timestamp when the loan was issued
+        bool isActive; // Status of the loan
+        uint256 interestRate; // Interest rate applied on the loan
+        uint256 loanPeriod; // Duration of the loan
     }
 
     // Events
@@ -95,7 +108,11 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
         uint256 amount,
         address borrower
     );
-    event LoanRepaid(uint256 indexed tokenId, uint256 repaymentAmount, address borrower);
+    event LoanRepaid(
+        uint256 indexed tokenId,
+        uint256 repaymentAmount,
+        address borrower
+    );
     event LoanTokensWithdrawn(uint256 amount);
 
     /**
@@ -117,13 +134,19 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
      * @return interestRate The interest rate applied to the loan.
      * @return loanPeriod The duration of the loan.
      */
-    function loans(uint256 tokenId) external view returns (
-        uint256 amount,
-        uint256 startTime,
-        bool isActive,
-        uint256 interestRate,
-        uint256 loanPeriod
-    ) {
+    function loans(
+        uint256 tokenId
+    )
+        external
+        view
+        returns (
+            uint256 amount,
+            uint256 startTime,
+            bool isActive,
+            uint256 interestRate,
+            uint256 loanPeriod
+        )
+    {
         return v1.loans(tokenId);
     }
 
@@ -152,11 +175,13 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
      * @return interestRate The interest rate applicable to this tier.
      * @return loanPeriod The duration of loans in this tier.
      */
-    function tiers(uint256 tierId) external view returns (
-        uint256 loanAmount,
-        uint256 interestRate,
-        uint256 loanPeriod
-    ) {
+    function tiers(
+        uint256 tierId
+    )
+        external
+        view
+        returns (uint256 loanAmount, uint256 interestRate, uint256 loanPeriod)
+    {
         return v1.tiers(tierId);
     }
 
@@ -170,23 +195,37 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
 
     /**
      * @dev Allows a user to request a loan if certain conditions are met
+     * @param requestedTierId The tier ID for the loan request
      */
-    function requestLoan() external nonReentrant {
+    function requestLoan(uint256 requestedTierId) external nonReentrant {
         // Validate NFT
         uint256 tokenId = v1.userNFT(msg.sender);
         require(tokenId != 0, "No NFT owned");
-        require(IERC721(address(v1)).ownerOf(tokenId) == msg.sender, "Not NFT owner");
-        uint256 tierId = v1.nftToTier(tokenId);
-        require(tierId != 0 && tierId <= v1.tierCount(), "Invalid tier parameters");
+        require(
+            IERC721(address(v1)).ownerOf(tokenId) == msg.sender,
+            "Not NFT owner"
+        );
+        uint256 userTierId = v1.nftToTier(tokenId);
+        require(
+            userTierId != 0 && userTierId <= v1.tierCount(),
+            "Invalid user tier"
+        );
+
+        // Check requested tier against user's tier
+        require(requestedTierId <= userTierId, "Tier not allowed");
 
         // Check if user has an active loan in V1 or V2
-        ( , , bool activeOnV1, , ) = v1.loans(tokenId);
+        (, , bool activeOnV1, , ) = v1.loans(tokenId);
         require(!activeOnV1, "Active loan on V1");
         require(!v2Loans[tokenId].isActive, "Active loan on V2");
 
         // Verify collateral
-        (uint256 loanAmount, uint256 interestRate, uint256 loanPeriod) = v1.tiers(tierId);
-        require(loanToken.balanceOf(address(this)) >= loanAmount, "Insufficient contract balance");
+        (uint256 loanAmount, uint256 interestRate, uint256 loanPeriod) = v1
+            .tiers(requestedTierId);
+        require(
+            loanToken.balanceOf(address(this)) >= loanAmount,
+            "Insufficient contract balance"
+        );
 
         // Issue loan
         v2Loans[tokenId] = Loan(
@@ -196,6 +235,7 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
             interestRate,
             loanPeriod
         );
+
         require(loanToken.transfer(msg.sender, loanAmount), "Transfer failed");
         emit LoanRequested(tokenId, loanAmount, msg.sender);
     }
@@ -213,13 +253,24 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
     ) external nonReentrant {
         uint256 tokenId = v1.userNFT(msg.sender);
         require(tokenId != 0, "No NFT owned");
-        require(IERC721(address(v1)).ownerOf(tokenId) == msg.sender, "Not NFT owner");
+        require(
+            IERC721(address(v1)).ownerOf(tokenId) == msg.sender,
+            "Not NFT owner"
+        );
 
         // V1 repayment
-        ( , , bool activeOnV1, , ) = v1.loans(tokenId);
+        (, , bool activeOnV1, , ) = v1.loans(tokenId);
         if (activeOnV1) {
-            v1.repayLoanWithPermit2(permitTransferFrom, transferDetails, signature);
-            emit LoanRepaid(tokenId, transferDetails.requestedAmount, msg.sender);
+            v1.repayLoanWithPermit2(
+                permitTransferFrom,
+                transferDetails,
+                signature
+            );
+            emit LoanRepaid(
+                tokenId,
+                transferDetails.requestedAmount,
+                msg.sender
+            );
             return;
         }
 
@@ -229,7 +280,10 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
             loan.isActive = false;
             uint256 interest = (loan.amount * loan.interestRate) / 10000;
             uint256 totalDue = loan.amount + interest;
-            require(block.timestamp <= loan.startTime + loan.loanPeriod, "Loan is expired");
+            require(
+                block.timestamp <= loan.startTime + loan.loanPeriod,
+                "Loan is expired"
+            );
             if (permitTransferFrom.permitted.token != address(loanToken))
                 revert("Invalid token");
             if (permitTransferFrom.permitted.amount < totalDue)
@@ -238,7 +292,12 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
                 revert("Invalid requested amount");
             if (transferDetails.to != address(this))
                 revert("Invalid transfer recipient");
-            PERMIT2.permitTransferFrom(permitTransferFrom, transferDetails, msg.sender, signature);
+            PERMIT2.permitTransferFrom(
+                permitTransferFrom,
+                transferDetails,
+                msg.sender,
+                signature
+            );
             emit LoanRepaid(tokenId, totalDue, msg.sender);
             return;
         }
@@ -250,14 +309,25 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
      * @dev Fetches the loan details of the caller from either V1 or V2
      * @return A tuple containing a boolean indicating if a loan is active and the loan details
      */
-    function fetchLoanByAddress(address wallet) external view returns (bool, Loan memory) {
+    function fetchLoanByAddress(
+        address wallet
+    ) external view returns (bool, Loan memory) {
         // Get token ID
         uint256 tokenId = v1.userNFT(wallet);
 
         // Check v1
-        (uint256 amount, uint256 startTime, bool isActive, uint256 interestRate, uint256 loanPeriod) = v1.loans(tokenId);
+        (
+            uint256 amount,
+            uint256 startTime,
+            bool isActive,
+            uint256 interestRate,
+            uint256 loanPeriod
+        ) = v1.loans(tokenId);
         if (isActive) {
-            return (true, Loan(amount, startTime, isActive, interestRate, loanPeriod));
+            return (
+                true,
+                Loan(amount, startTime, isActive, interestRate, loanPeriod)
+            );
         }
 
         // Check V2
