@@ -258,22 +258,6 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
             "Not NFT owner"
         );
 
-        // V1 repayment
-        (, , bool activeOnV1, , ) = v1.loans(tokenId);
-        if (activeOnV1) {
-            v1.repayLoanWithPermit2(
-                permitTransferFrom,
-                transferDetails,
-                signature
-            );
-            emit LoanRepaid(
-                tokenId,
-                transferDetails.requestedAmount,
-                msg.sender
-            );
-            return;
-        }
-
         // V2 repayment
         Loan storage loan = v2Loans[tokenId];
         if (loan.isActive) {
@@ -302,7 +286,7 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
             return;
         }
 
-        revert("No active loan in V1 or V2");
+        revert("No active loan");
     }
 
     /**
@@ -311,7 +295,7 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
      */
     function fetchLoanByAddress(
         address wallet
-    ) external view returns (bool, Loan memory) {
+    ) external view returns (string, Loan memory) {
         // Get token ID
         uint256 tokenId = v1.userNFT(wallet);
 
@@ -325,7 +309,7 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
         ) = v1.loans(tokenId);
         if (isActive) {
             return (
-                true,
+                "V1",
                 Loan(amount, startTime, isActive, interestRate, loanPeriod)
             );
         }
@@ -333,11 +317,11 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
         // Check V2
         Loan memory v2Loan = v2Loans[tokenId];
         if (v2Loan.isActive) {
-            return (true, v2Loan);
+            return ("V2", v2Loan);
         }
 
         // No active loan in V1 or V2
-        return (false, Loan(0, 0, false, 0, 0));
+        return ("", Loan(0, 0, false, 0, 0));
     }
 
     /**
