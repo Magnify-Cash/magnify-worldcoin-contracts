@@ -7,10 +7,11 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IMagnifyWorldV3} from "./interfaces/IMagnifyWorldV3.sol";
 import {IMagnifyWorldSoulboundNFT} from "./interfaces/IMagnifyWorldSoulboundNFT.sol";
 
-
 contract MagnifyWorldV3 is
+    IMagnifyWorldV3,
     ERC20Upgradeable,
     OwnableUpgradeable,
     ReentrancyGuardUpgradeable
@@ -23,14 +24,23 @@ contract MagnifyWorldV3 is
     uint256 public totalLoanAmount;
     address public treasury;
     uint16 public treasuryFee;
+    uint8 public tierCount;
 
+    mapping(address => LoanData[]) public V3loans;
+    mapping(uint8 => Tier) public tiers;
 
+    uint256[50] __gap;
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event Deposit(address indexed caller, address indexed owner, uint256 assets, uint256 shares);
+    event Deposit(
+        address indexed caller,
+        address indexed owner,
+        uint256 assets,
+        uint256 shares
+    );
 
     event Withdraw(
         address indexed caller,
@@ -53,12 +63,14 @@ contract MagnifyWorldV3 is
         __ReentrancyGuard_init();
     }
 
-
     /*//////////////////////////////////////////////////////////////
                         DEPOSIT/WITHDRAWAL LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    function deposit(uint256 assets, address receiver) public virtual returns (uint256 shares) {
+    function deposit(
+        uint256 assets,
+        address receiver
+    ) public virtual returns (uint256 shares) {
         // Check for rounding error since we round down in previewDeposit.
         require((shares = previewDeposit(assets)) != 0, "ZERO_SHARES");
 
@@ -72,7 +84,10 @@ contract MagnifyWorldV3 is
         afterDeposit(assets, shares);
     }
 
-    function mint(uint256 shares, address receiver) public virtual returns (uint256 assets) {
+    function mint(
+        uint256 shares,
+        address receiver
+    ) public virtual returns (uint256 assets) {
         assets = previewMint(shares); // No need to check for rounding error, previewMint rounds up.
 
         // Need to transfer before minting or ERC777s could reenter.
@@ -134,35 +149,51 @@ contract MagnifyWorldV3 is
         return 1;
     }
 
-    function convertToShares(uint256 assets) public view virtual returns (uint256) {
+    function convertToShares(
+        uint256 assets
+    ) public view virtual returns (uint256) {
         uint256 supply = totalSupply(); // Saves an extra SLOAD if totalSupply is non-zero.
 
         return supply == 0 ? assets : assets.mulDiv(supply, totalAssets());
     }
 
-    function convertToAssets(uint256 shares) public view virtual returns (uint256) {
+    function convertToAssets(
+        uint256 shares
+    ) public view virtual returns (uint256) {
         uint256 supply = totalSupply(); // Saves an extra SLOAD if totalSupply is non-zero.
 
         return supply == 0 ? shares : shares.mulDiv(totalAssets(), supply);
     }
 
-    function previewDeposit(uint256 assets) public view virtual returns (uint256) {
+    function previewDeposit(
+        uint256 assets
+    ) public view virtual returns (uint256) {
         return convertToShares(assets);
     }
 
     function previewMint(uint256 shares) public view virtual returns (uint256) {
         uint256 supply = totalSupply(); // Saves an extra SLOAD if totalSupply is non-zero.
 
-        return supply == 0 ? shares : shares.mulDiv(totalAssets(), supply, Math.Rounding.Ceil);
+        return
+            supply == 0
+                ? shares
+                : shares.mulDiv(totalAssets(), supply, Math.Rounding.Ceil);
     }
 
-    function previewWithdraw(uint256 assets) public view virtual returns (uint256) {
+    function previewWithdraw(
+        uint256 assets
+    ) public view virtual returns (uint256) {
         uint256 supply = totalSupply(); // Saves an extra SLOAD if totalSupply is non-zero.
 
-        return supply == 0 ? assets : assets.mulDiv(supply, totalAssets(), Math.Rounding.Ceil);
+        return
+            supply == 0
+                ? assets
+                : assets.mulDiv(supply, totalAssets(), Math.Rounding.Ceil);
     }
 
-    function previewRedeem(uint256 shares) public view virtual returns (uint256) {
+    function previewRedeem(
+        uint256 shares
+    ) public view virtual returns (uint256) {
         return convertToAssets(shares);
     }
 
@@ -199,10 +230,57 @@ contract MagnifyWorldV3 is
     }
 
     /*//////////////////////////////////////////////////////////////
+                          TIERS LOGIC
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @dev Adds a new tier with specified parameters
+     * @param loanAmount Amount that can be borrowed in this tier
+     * @param interestRate Interest rate in basis points
+     * @param loanPeriod Loan duration in seconds
+     */
+    function addTier(
+        uint256 loanAmount,
+        uint256 interestRate,
+        uint256 loanPeriod
+    ) external onlyOwner {
+        if (loanAmount == 0 || interestRate == 0 || loanPeriod == 0)
+            revert("Invalid tier parameters");
+
+        tierCount++;
+        tiers[tierCount] = Tier(loanAmount, interestRate, loanPeriod);
+
+        // emit TierAdded(tierCount, loanAmount, interestRate, loanPeriod);
+    }
+
+    /**
+     * @dev Updates an existing tier's parameters
+     * @param tierId ID of the tier to update
+     * @param newLoanAmount New loan amount
+     * @param newInterestRate New interest rate
+     * @param newLoanPeriod New loan period
+     */
+    function updateTier(
+        uint8 tierId,
+        uint256 newLoanAmount,
+        uint256 newInterestRate,
+        uint256 newLoanPeriod
+    ) external onlyOwner {
+        if (tierId > tierCount) revert("Tier does not exist");
+        if (newLoanAmount == 0 || newInterestRate == 0 || newLoanPeriod == 0)
+            revert("Invalid tier parameters");
+
+        tiers[tierId] = Tier(newLoanAmount, newInterestRate, newLoanPeriod);
+
+        // emit TierUpdated(tierId, newLoanAmount, newInterestRate, newLoanPeriod);
+    }
+
+
+    /*//////////////////////////////////////////////////////////////
                           LOANS LOGIC
     //////////////////////////////////////////////////////////////*/
 
-        /**
+    /**
      * @dev Allows NFT owner to request a loan based on their tier
      * @notice This function automatically uses the NFT associated with the msg.sender
      */
@@ -228,6 +306,7 @@ contract MagnifyWorldV3 is
     }
 
     function processOutdatedLoans() external nonReentrant {
+        return;
     }
 
     function getActiveLoan() external {
