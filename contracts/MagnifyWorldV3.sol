@@ -10,6 +10,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IMagnifyWorldV3} from "./interfaces/IMagnifyWorldV3.sol";
 import {IMagnifyWorldSoulboundNFT} from "./interfaces/IMagnifyWorldSoulboundNFT.sol";
 
+// vault logic from ERC4626
 contract MagnifyWorldV3 is
     IMagnifyWorldV3,
     ERC20Upgradeable,
@@ -25,8 +26,9 @@ contract MagnifyWorldV3 is
     address public treasury;
     uint16 public treasuryFee;
     uint8 public tierCount;
+    LoanData[] public activeLoans;
 
-    mapping(address => LoanData[]) public V3loans;
+    mapping(address => LoanData[]) public v3loans;
     mapping(uint8 => Tier) public tiers;
 
     uint256[50] __gap;
@@ -152,7 +154,7 @@ contract MagnifyWorldV3 is
     function convertToShares(
         uint256 assets
     ) public view virtual returns (uint256) {
-        uint256 supply = totalSupply(); // Saves an extra SLOAD if totalSupply is non-zero.
+        uint256 supply = totalSupply();
 
         return supply == 0 ? assets : assets.mulDiv(supply, totalAssets());
     }
@@ -160,7 +162,7 @@ contract MagnifyWorldV3 is
     function convertToAssets(
         uint256 shares
     ) public view virtual returns (uint256) {
-        uint256 supply = totalSupply(); // Saves an extra SLOAD if totalSupply is non-zero.
+        uint256 supply = totalSupply();
 
         return supply == 0 ? shares : shares.mulDiv(totalAssets(), supply);
     }
@@ -172,7 +174,7 @@ contract MagnifyWorldV3 is
     }
 
     function previewMint(uint256 shares) public view virtual returns (uint256) {
-        uint256 supply = totalSupply(); // Saves an extra SLOAD if totalSupply is non-zero.
+        uint256 supply = totalSupply();
 
         return
             supply == 0
@@ -183,7 +185,7 @@ contract MagnifyWorldV3 is
     function previewWithdraw(
         uint256 assets
     ) public view virtual returns (uint256) {
-        uint256 supply = totalSupply(); // Saves an extra SLOAD if totalSupply is non-zero.
+        uint256 supply = totalSupply();
 
         return
             supply == 0
@@ -274,7 +276,6 @@ contract MagnifyWorldV3 is
 
         // emit TierUpdated(tierId, newLoanAmount, newInterestRate, newLoanPeriod);
     }
-
 
     /*//////////////////////////////////////////////////////////////
                           LOANS LOGIC

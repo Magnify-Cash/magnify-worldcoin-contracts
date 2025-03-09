@@ -10,7 +10,7 @@ contract MagnifyWorldSoulboundNFT is
     OwnableUpgradeable,
     IMagnifyWorldSoulboundNFT
 {
-    uint256 internal tokenCount;
+    uint256 public tokenCount;
     mapping(uint256 => NFTData) public nftData;
     mapping(address => uint256) public userToId;
     mapping(address => bool) public admins;
@@ -30,7 +30,7 @@ contract MagnifyWorldSoulboundNFT is
 
     function mintNFT(address _to, uint8 _tier) public onlyAdmin {
         if (userToId[_to] != 0) {
-            revert AlreadyOwnedNFT(); 
+            revert AlreadyOwnedNFT();
         }
         tokenCount++;
         _safeMint(_to, tokenCount);
@@ -42,13 +42,26 @@ contract MagnifyWorldSoulboundNFT is
         nftData[_tokenId].tier = _newTier;
     }
 
-    function updateloanRepayment(uint256 _tokenId, uint256 _interestPaid) external onlyAdmin {
+    function increaseloanRepayment(
+        uint256 _tokenId,
+        uint256 _interestPaid
+    ) external onlyAdmin {
         nftData[_tokenId].loansRepaid++;
         nftData[_tokenId].interestPaid += _interestPaid;
     }
 
-    function updateLoanDefault(uint256 _tokenId, uint256 _defaultAmount) external onlyAdmin {
-        nftData[_tokenId].loansDefaulted+= _defaultAmount;
+    function increaseLoanDefault(
+        uint256 _tokenId,
+        uint256 _amount
+    ) external onlyAdmin {
+        nftData[_tokenId].loansDefaulted += _amount;
+    }
+
+    function decreaseLoanDefault(
+        uint256 _tokenId,
+        uint256 _amount
+    ) external onlyAdmin {
+        nftData[_tokenId].loansDefaulted -= _amount;
     }
 
     // Set multiple admin wallets
