@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 // Interface for interacting with MagnifyWorldV1
 interface IMagnifyWorldV1 {
@@ -295,7 +295,7 @@ contract MagnifyWorldV2 is Ownable, ReentrancyGuard {
      */
     function fetchLoanByAddress(
         address wallet
-    ) external view returns (string, Loan memory) {
+    ) external view returns (string memory, Loan memory) {
         // Get token ID
         uint256 tokenId = v1.userNFT(wallet);
 

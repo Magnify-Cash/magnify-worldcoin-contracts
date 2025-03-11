@@ -17,6 +17,11 @@ const config: HardhatUserConfig = {
       url: "https://worldchain-sepolia.g.alchemy.com/public",
       accounts: [process.env.WALLET_PRIVATE_KEY],
     },
+    worldChainMainnet: {
+      chainId: 480,
+      url: "https://worldchain-mainnet.g.alchemy.com/v2/Gpk_py-r1-t6krNnNdpMntaAxXb3GfUq",
+      accounts: [process.env.WALLET_PRIVATE_KEY],
+    },
   },
 };
 
