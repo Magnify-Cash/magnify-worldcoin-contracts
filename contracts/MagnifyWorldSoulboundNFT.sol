@@ -64,6 +64,10 @@ contract MagnifyWorldSoulboundNFT is
         nftData[_tokenId].loansDefaulted -= _amount;
     }
 
+    function getNFTData(uint256 _tokenId) external view returns (NFTData memory) {
+        return nftData[_tokenId];
+    }
+
     // Set multiple admin wallets
     function setAdmin(address _address, bool _allow) external onlyOwner {
         admins[_address] = _allow;
