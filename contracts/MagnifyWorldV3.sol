@@ -2,30 +2,28 @@
 pragma solidity ^0.8.28;
 
 import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMagnifyWorldV3} from "./interfaces/IMagnifyWorldV3.sol";
 import {IMagnifyWorldSoulboundNFT} from "./interfaces/IMagnifyWorldSoulboundNFT.sol";
 
-// vault logic from ERC4626
 contract MagnifyWorldV3 is
     IMagnifyWorldV3,
-    ERC20Upgradeable,
+    ERC4626Upgradeable,
     OwnableUpgradeable,
     ReentrancyGuardUpgradeable
 {
-    using SafeERC20 for ERC20Upgradeable;
+    using SafeERC20 for IERC20;
     using Math for uint256;
 
-    ERC20Upgradeable public asset;
     IMagnifyWorldSoulboundNFT public soulboundNFT;
     uint256 public totalLoanAmount;
     address public treasury;
     uint16 public treasuryFee;
-    uint8 public tierCount;
     LoanData[] public activeLoans;
 
     mapping(address => LoanData[]) public v3loans;
@@ -33,202 +31,15 @@ contract MagnifyWorldV3 is
 
     uint256[50] __gap;
 
-    /*//////////////////////////////////////////////////////////////
-                                 EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    event Deposit(
-        address indexed caller,
-        address indexed owner,
-        uint256 assets,
-        uint256 shares
-    );
-
-    event Withdraw(
-        address indexed caller,
-        address indexed receiver,
-        address indexed owner,
-        uint256 assets,
-        uint256 shares
-    );
-
-    /*//////////////////////////////////////////////////////////////
-                               Initializer
-    //////////////////////////////////////////////////////////////*/
-
     function initialize(
         string calldata _name,
-        string calldata _symbol
+        string calldata _symbol,
+        IERC20 _asset
     ) external initializer {
         __Ownable_init(msg.sender);
         __ERC20_init(_name, _symbol);
+        __ERC4626_init(_asset);
         __ReentrancyGuard_init();
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                        DEPOSIT/WITHDRAWAL LOGIC
-    //////////////////////////////////////////////////////////////*/
-
-    function deposit(
-        uint256 assets,
-        address receiver
-    ) public virtual returns (uint256 shares) {
-        // Check for rounding error since we round down in previewDeposit.
-        require((shares = previewDeposit(assets)) != 0, "ZERO_SHARES");
-
-        // Need to transfer before minting or ERC777s could reenter.
-        asset.safeTransferFrom(msg.sender, address(this), assets);
-
-        _mint(receiver, shares);
-
-        emit Deposit(msg.sender, receiver, assets, shares);
-
-        afterDeposit(assets, shares);
-    }
-
-    function mint(
-        uint256 shares,
-        address receiver
-    ) public virtual returns (uint256 assets) {
-        assets = previewMint(shares); // No need to check for rounding error, previewMint rounds up.
-
-        // Need to transfer before minting or ERC777s could reenter.
-        asset.safeTransferFrom(msg.sender, address(this), assets);
-
-        _mint(receiver, shares);
-
-        emit Deposit(msg.sender, receiver, assets, shares);
-
-        afterDeposit(assets, shares);
-    }
-
-    function withdraw(
-        uint256 assets,
-        address receiver,
-        address owner
-    ) public virtual returns (uint256 shares) {
-        shares = previewWithdraw(assets); // No need to check for rounding error, previewWithdraw rounds up.
-
-        if (msg.sender != owner) {
-            _spendAllowance(owner, msg.sender, shares); // Saves gas for limited approvals.
-        }
-
-        beforeWithdraw(assets, shares);
-
-        _burn(owner, shares);
-
-        emit Withdraw(msg.sender, receiver, owner, assets, shares);
-
-        asset.safeTransfer(receiver, assets);
-    }
-
-    function redeem(
-        uint256 shares,
-        address receiver,
-        address owner
-    ) public virtual returns (uint256 assets) {
-        if (msg.sender != owner) {
-            _spendAllowance(owner, msg.sender, shares); // Saves gas for limited approvals.
-        }
-
-        // Check for rounding error since we round down in previewRedeem.
-        require((assets = previewRedeem(shares)) != 0, "ZERO_ASSETS");
-
-        beforeWithdraw(assets, shares);
-
-        _burn(owner, shares);
-
-        emit Withdraw(msg.sender, receiver, owner, assets, shares);
-
-        asset.safeTransfer(receiver, assets);
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                            ACCOUNTING LOGIC
-    //////////////////////////////////////////////////////////////*/
-
-    function totalAssets() public view virtual returns (uint256) {
-        return 1;
-    }
-
-    function convertToShares(
-        uint256 assets
-    ) public view virtual returns (uint256) {
-        uint256 supply = totalSupply();
-
-        return supply == 0 ? assets : assets.mulDiv(supply, totalAssets());
-    }
-
-    function convertToAssets(
-        uint256 shares
-    ) public view virtual returns (uint256) {
-        uint256 supply = totalSupply();
-
-        return supply == 0 ? shares : shares.mulDiv(totalAssets(), supply);
-    }
-
-    function previewDeposit(
-        uint256 assets
-    ) public view virtual returns (uint256) {
-        return convertToShares(assets);
-    }
-
-    function previewMint(uint256 shares) public view virtual returns (uint256) {
-        uint256 supply = totalSupply();
-
-        return
-            supply == 0
-                ? shares
-                : shares.mulDiv(totalAssets(), supply, Math.Rounding.Ceil);
-    }
-
-    function previewWithdraw(
-        uint256 assets
-    ) public view virtual returns (uint256) {
-        uint256 supply = totalSupply();
-
-        return
-            supply == 0
-                ? assets
-                : assets.mulDiv(supply, totalAssets(), Math.Rounding.Ceil);
-    }
-
-    function previewRedeem(
-        uint256 shares
-    ) public view virtual returns (uint256) {
-        return convertToAssets(shares);
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                     DEPOSIT/WITHDRAWAL LIMIT LOGIC
-    //////////////////////////////////////////////////////////////*/
-
-    function maxDeposit(address) public view virtual returns (uint256) {
-        return type(uint256).max;
-    }
-
-    function maxMint(address) public view virtual returns (uint256) {
-        return type(uint256).max;
-    }
-
-    function maxWithdraw(address owner) public view virtual returns (uint256) {
-        return convertToAssets(balanceOf(owner));
-    }
-
-    function maxRedeem(address owner) public view virtual returns (uint256) {
-        return balanceOf(owner);
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                          INTERNAL HOOKS LOGIC
-    //////////////////////////////////////////////////////////////*/
-
-    function beforeWithdraw(uint256 assets, uint256 shares) internal virtual {
-        return;
-    }
-
-    function afterDeposit(uint256 assets, uint256 shares) internal virtual {
-        return;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -237,42 +48,47 @@ contract MagnifyWorldV3 is
 
     /**
      * @dev Adds a new tier with specified parameters
-     * @param loanAmount Amount that can be borrowed in this tier
-     * @param interestRate Interest rate in basis points
-     * @param loanPeriod Loan duration in seconds
+     * @param _loanAmount Amount that can be borrowed in this tier
+     * @param _interestRate Interest rate in basis points
+     * @param _loanPeriod Loan duration in seconds
      */
     function addTier(
-        uint256 loanAmount,
-        uint256 interestRate,
-        uint256 loanPeriod
+        uint8 _tier,
+        uint256 _loanAmount,
+        uint256 _interestRate,
+        uint256 _loanPeriod
     ) external onlyOwner {
-        if (loanAmount == 0 || interestRate == 0 || loanPeriod == 0)
+        if (tiers[_tier].loanAmount != 0) {
+            revert("Tier exists");
+        }
+        if (_loanAmount == 0 || _interestRate == 0 || _loanPeriod == 0)
             revert("Invalid tier parameters");
 
-        tierCount++;
-        tiers[tierCount] = Tier(loanAmount, interestRate, loanPeriod);
+        tiers[_tier] = Tier(_loanAmount, _interestRate, _loanPeriod);
 
         // emit TierAdded(tierCount, loanAmount, interestRate, loanPeriod);
     }
 
     /**
      * @dev Updates an existing tier's parameters
-     * @param tierId ID of the tier to update
-     * @param newLoanAmount New loan amount
-     * @param newInterestRate New interest rate
-     * @param newLoanPeriod New loan period
+     * @param _tierId ID of the tier to update
+     * @param _newLoanAmount New loan amount
+     * @param _newInterestRate New interest rate
+     * @param _newLoanPeriod New loan period
      */
     function updateTier(
-        uint8 tierId,
-        uint256 newLoanAmount,
-        uint256 newInterestRate,
-        uint256 newLoanPeriod
+        uint8 _tierId,
+        uint256 _newLoanAmount,
+        uint256 _newInterestRate,
+        uint256 _newLoanPeriod
     ) external onlyOwner {
-        if (tierId > tierCount) revert("Tier does not exist");
-        if (newLoanAmount == 0 || newInterestRate == 0 || newLoanPeriod == 0)
+        if (tiers[_tierId].loanAmount == 0) {
+            revert("Tier does not exists");
+        }
+        if (_newLoanAmount == 0 || _newInterestRate == 0 || _newLoanPeriod == 0)
             revert("Invalid tier parameters");
 
-        tiers[tierId] = Tier(newLoanAmount, newInterestRate, newLoanPeriod);
+        tiers[_tierId] = Tier(_newLoanAmount, _newInterestRate, _newLoanPeriod);
 
         // emit TierUpdated(tierId, newLoanAmount, newInterestRate, newLoanPeriod);
     }
@@ -286,6 +102,24 @@ contract MagnifyWorldV3 is
      * @notice This function automatically uses the NFT associated with the msg.sender
      */
     function requestLoan() external nonReentrant {
+
+        uint256 tokenId = soulboundNFT.userToId(msg.sender);
+
+        if (tokenId == 0) {
+            // check V1 if yes mint soulbound, if no throw error
+        }
+        // get tier and NFT data
+
+        // Check if user has existing active loan
+
+
+        // Check if enough assets
+
+        // Issue loan
+
+        // Add to active loans
+
+        // emit LoanRequested(tokenId, loanAmount, msg.sender);
         return;
     }
 
@@ -307,14 +141,44 @@ contract MagnifyWorldV3 is
     }
 
     function processOutdatedLoans() external nonReentrant {
+        LoanData memory oldestLoan = activeLoans[activeLoans.length - 1];
+        while(oldestLoan.loanTimestamp + oldestLoan.duration < block.timestamp) {
+            defaultLastLoan(oldestLoan);
+            oldestLoan = activeLoans[activeLoans.length - 1];
+        }
         return;
     }
 
-    function getActiveLoan() external {
-        return;
+    function getActiveLoan(address _user) external view returns (LoanData memory loan) {
+        uint256 length = v3loans[_user].length;
+        // return empty if length is 0
+        LoanData memory latestLoan = v3loans[_user][length - 1];
+
+        if (latestLoan.isActive) {
+            return latestLoan;
+        } else {
+            LoanData memory emptyLoan;
+            return emptyLoan;
+        }
     }
 
-    function getLoanHistory() external {
-        return;
+    function getAllActiveLoans() external view returns (LoanData[] memory allActiveLoans) {
+        return activeLoans;
+    }
+
+    function getLoanHistory(address _user) external view returns (LoanData[] memory loanHistory) {
+        return v3loans[_user];
+    }
+
+    function deleteActiveLoan(uint256 _index) internal {
+        activeLoans[_index] = activeLoans[activeLoans.length - 1];
+        activeLoans.pop();
+    }
+
+    function defaultLastLoan(LoanData memory oldestLoan) internal {
+        totalLoanAmount -= oldestLoan.loanAmount;
+        soulboundNFT.increaseLoanDefault(oldestLoan.tokenId, oldestLoan.loanAmount);
+        v3loans[oldestLoan.borrower][v3loans[oldestLoan.borrower].length -1].isDefault = true;
+        activeLoans.pop();
     }
 }

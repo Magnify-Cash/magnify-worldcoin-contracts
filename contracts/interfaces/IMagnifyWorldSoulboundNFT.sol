@@ -17,4 +17,15 @@ interface IMagnifyWorldSoulboundNFT {
         address owner;
         uint8 tier;
     }
+
+    function increaseloanRepayment(
+        uint256 _tokenId,
+        uint256 _interestPaid
+    ) external;
+
+    function increaseLoanDefault(uint256 _tokenId, uint256 _amount) external;
+
+    function decreaseLoanDefault(uint256 _tokenId, uint256 _amount) external;
+
+    function userToId(address _user) external view returns (uint256);
 }

@@ -9,8 +9,10 @@ interface IMagnifyWorldV3 {
         uint256 loanTimestamp;
         uint256 duration;
         uint256 repaymentTimestamp;
+        address borrower;
         uint16 interestRate;
         uint8 tier;
+        bool isDefault;
         bool isActive;
     }
 
