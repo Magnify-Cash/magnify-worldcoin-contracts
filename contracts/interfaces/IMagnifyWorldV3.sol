@@ -25,6 +25,7 @@ interface IMagnifyWorldV3 {
     struct Tier {
         uint256 loanAmount;
         uint256 loanPeriod;
+        uint16 originationFee;
         uint16 interestRate;
     }
 }

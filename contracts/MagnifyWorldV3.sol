@@ -6,6 +6,7 @@ import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC2
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMagnifyWorldV1} from "./interfaces/IMagnifyWorldV1.sol";
 import {IMagnifyWorldV3} from "./interfaces/IMagnifyWorldV3.sol";
@@ -19,14 +20,17 @@ contract MagnifyWorldV3 is
     OwnableUpgradeable,
     ReentrancyGuardUpgradeable
 {
+    using Math for uint256;
     using SafeERC20 for IERC20;
 
     IMagnifyWorldSoulboundNFT public soulboundNFT;
     IMagnifyWorldV1 public v1;
     IPermit2 public permit2;
     uint256 public totalLoanAmount;
+    uint256 public totalDefaults;
     address public treasury;
     uint16 public treasuryFee;
+    uint16 public defaultPenalty;
     LoanData[] public activeLoans;
 
     mapping(address => LoanData[]) public v3loans;
@@ -52,14 +56,16 @@ contract MagnifyWorldV3 is
     /**
      * @dev Adds a new tier with specified parameters
      * @param _loanAmount Amount that can be borrowed in this tier
-     * @param _interestRate Interest rate in basis points
      * @param _loanPeriod Loan duration in seconds
+     * @param _orignationFee Origination Fee in basis points
+     * @param _interestRate Interest rate in basis points
      */
     function addTier(
         uint8 _tier,
         uint256 _loanAmount,
-        uint256 _interestRate,
-        uint16 _loanPeriod
+        uint256 _loanPeriod,
+        uint16 _orignationFee,
+        uint16 _interestRate
     ) external onlyOwner {
         if (tiers[_tier].loanAmount != 0) {
             revert("Tier exists");
@@ -67,7 +73,12 @@ contract MagnifyWorldV3 is
         if (_loanAmount == 0 || _interestRate == 0 || _loanPeriod == 0)
             revert("Invalid tier parameters");
 
-        tiers[_tier] = Tier(_loanAmount, _interestRate, _loanPeriod);
+        tiers[_tier] = Tier(
+            _loanAmount,
+            _loanPeriod,
+            _orignationFee,
+            _interestRate
+        );
 
         // emit TierAdded(tierCount, loanAmount, interestRate, loanPeriod);
     }
@@ -76,14 +87,16 @@ contract MagnifyWorldV3 is
      * @dev Updates an existing tier's parameters
      * @param _tierId ID of the tier to update
      * @param _newLoanAmount New loan amount
-     * @param _newInterestRate New interest rate
      * @param _newLoanPeriod New loan period
+     * @param _newOrignationFee New origination Fee in basis points
+     * @param _newInterestRate New interest rate
      */
     function updateTier(
         uint8 _tierId,
         uint256 _newLoanAmount,
-        uint256 _newInterestRate,
-        uint16 _newLoanPeriod
+        uint256 _newLoanPeriod,
+        uint16 _newOrignationFee,
+        uint16 _newInterestRate
     ) external onlyOwner {
         if (tiers[_tierId].loanAmount == 0) {
             revert("Tier does not exists");
@@ -91,7 +104,12 @@ contract MagnifyWorldV3 is
         if (_newLoanAmount == 0 || _newInterestRate == 0 || _newLoanPeriod == 0)
             revert("Invalid tier parameters");
 
-        tiers[_tierId] = Tier(_newLoanAmount, _newInterestRate, _newLoanPeriod);
+        tiers[_tierId] = Tier(
+            _newLoanAmount,
+            _newLoanPeriod,
+            _newOrignationFee,
+            _newInterestRate
+        );
 
         // emit TierUpdated(tierId, newLoanAmount, newInterestRate, newLoanPeriod);
     }
@@ -158,9 +176,18 @@ contract MagnifyWorldV3 is
         );
 
         v3loans[msg.sender].push(newLoan);
-        addNewActiveLoan(newLoan);
+        addActiveLoan(newLoan);
+        totalLoanAmount += tierInfo.loanAmount;
 
-        usdc.safeTransfer(msg.sender, tierInfo.loanAmount);
+        uint256 loanOriginationFee = tierInfo.loanAmount *
+            tierInfo.originationFee;
+
+        usdc.safeTransfer(msg.sender, tierInfo.loanAmount - loanOriginationFee);
+        usdc.safeTransfer(
+            msg.sender,
+            loanOriginationFee.mulDiv(treasuryFee, 10000)
+        );
+
         // emit LoanRequested(tokenId, loanAmount, msg.sender);
         return;
     }
@@ -182,17 +209,68 @@ contract MagnifyWorldV3 is
         if (!loan.isActive) {
             revert("No active loan");
         }
-
+        IERC20 usdc = IERC20(asset());
         loan.isActive = false;
         loan.repaymentTimestamp = block.timestamp;
 
-        uint256 interest = (loan.loanAmount * loan.interestRate) / 10000;
+        uint256 interest = loan.loanAmount.mulDiv(loan.interestRate, 10000);
         uint256 totalDue = loan.loanAmount + interest;
         require(
             block.timestamp <= loan.loanTimestamp + loan.duration,
             "Loan is expired"
         );
-        if (permitTransferFrom.permitted.token != asset())
+        if (permitTransferFrom.permitted.token != address(usdc))
+            revert("Invalid token");
+        if (permitTransferFrom.permitted.amount < totalDue)
+            revert("Insufficient permit amount");
+        if (transferDetails.requestedAmount != totalDue)
+            revert("Invalid requested amount");
+        if (transferDetails.to != address(this))
+            revert("Invalid transfer recipient");
+        totalLoanAmount -= loan.loanAmount;
+        removeActiveLoan(findActiveLoan(loan.loanID));
+
+        permit2.permitTransferFrom(
+            permitTransferFrom,
+            transferDetails,
+            msg.sender,
+            signature
+        );
+
+        usdc.safeTransfer(treasury, interest.mulDiv(treasuryFee, 10000));
+
+        // set soulbound info
+        soulboundNFT.increaseloanRepayment(loan.tokenId, interest);
+        // emit LoanRepaid(tokenId, totalDue, msg.sender);
+    }
+
+    /**
+     * @notice Repays an active loan using Permit2 for token approval
+     * @dev Uses Uniswap's Permit2 for gas-efficient token approvals in a single transaction
+     * @dev The loan must be active and not expired, and the caller must be the NFT owner
+     */
+    function repayDefaultedLoanWithPermit2(
+        uint256 _index,
+        ISignatureTransfer.PermitTransferFrom calldata permitTransferFrom,
+        ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
+        bytes calldata signature
+    ) external nonReentrant {
+        // V2 repayment
+        LoanData storage loan = v3loans[msg.sender][_index];
+        if (!loan.isDefault) {
+            revert("No active loan");
+        }
+        IERC20 usdc = IERC20(asset());
+        loan.isDefault = true;
+
+        uint256 interest = loan.loanAmount.mulDiv(loan.interestRate, 10000);
+        uint256 penalty = loan.loanAmount.mulDiv(defaultPenalty, 10000);
+        uint256 totalDue = loan.loanAmount + interest + penalty;
+        require(
+            block.timestamp <= loan.loanTimestamp + loan.duration,
+            "Loan is expired"
+        );
+        if (permitTransferFrom.permitted.token != address(usdc))
             revert("Invalid token");
         if (permitTransferFrom.permitted.amount < totalDue)
             revert("Insufficient permit amount");
@@ -207,8 +285,14 @@ contract MagnifyWorldV3 is
             msg.sender,
             signature
         );
+        usdc.safeTransfer(
+            treasury,
+            (interest + penalty).mulDiv(treasuryFee, 10000)
+        );
+        totalDefaults -= loan.loanAmount;
+        soulboundNFT.decreaseLoanDefault(loan.tokenId, loan.loanAmount);
+
         // emit LoanRepaid(tokenId, totalDue, msg.sender);
-        return;
     }
 
     function processOutdatedLoans() external nonReentrant {
@@ -256,13 +340,22 @@ contract MagnifyWorldV3 is
         return v3loans[_user];
     }
 
-    function addNewActiveLoan(LoanData memory newLoan) internal {
+    function addActiveLoan(LoanData memory newLoan) internal {
         LoanData memory emptyLoan;
         activeLoans.push(emptyLoan);
-        for (uint256 i = 0; i < activeLoans.length - 1; i++) {
-            activeLoans[i] = activeLoans[i + 1];
+        for (uint256 i = activeLoans.length - 1; i > 0; i--) {
+            activeLoans[i] = activeLoans[i - 1];
         }
         activeLoans[0] = newLoan;
+    }
+
+    function removeActiveLoan(uint256 _index) internal {
+        require(_index < activeLoans.length, "index out of bound");
+
+        for (uint256 i = _index; i < activeLoans.length - 1; i++) {
+            activeLoans[i] = activeLoans[i + 1];
+        }
+        activeLoans.pop();
     }
 
     function findActiveLoan(bytes32 id) internal view returns (uint256 index) {
@@ -276,12 +369,20 @@ contract MagnifyWorldV3 is
 
     function defaultLastLoan(LoanData memory oldestLoan) internal {
         totalLoanAmount -= oldestLoan.loanAmount;
+        totalDefaults += oldestLoan.loanAmount;
+
         soulboundNFT.increaseLoanDefault(
             oldestLoan.tokenId,
             oldestLoan.loanAmount
         );
         v3loans[oldestLoan.borrower][v3loans[oldestLoan.borrower].length - 1]
             .isDefault = true;
+        v3loans[oldestLoan.borrower][v3loans[oldestLoan.borrower].length - 1]
+            .isActive = false;
         activeLoans.pop();
+    }
+
+    function totalAssets() public view override returns (uint256) {
+        return IERC20(asset()).balanceOf(address(this)) + totalLoanAmount;
     }
 }
