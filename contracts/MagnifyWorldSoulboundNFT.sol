@@ -25,8 +25,8 @@ contract MagnifyWorldSoulboundNFT is
     }
 
     function initialize(string calldata _name, string calldata _symbol) public initializer {
-        __Ownable_init(msg.sender);
         __ERC721_init(_name, _symbol);
+        __Ownable_init(msg.sender);
     }
 
     function mintNFT(address _to, uint8 _tier) public onlyAdmin {

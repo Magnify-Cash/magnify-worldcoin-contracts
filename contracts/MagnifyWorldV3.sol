@@ -32,6 +32,7 @@ contract MagnifyWorldV3 is
     address public treasury;
     uint16 public treasuryFee;
     uint16 public defaultPenalty;
+    uint16 public originationFee;
     LoanData[] public activeLoans;
 
     mapping(address => LoanData[]) public v3loans;
@@ -42,12 +43,23 @@ contract MagnifyWorldV3 is
     function initialize(
         string calldata _name,
         string calldata _symbol,
-        IERC20 _asset
+        IERC20 _asset,
+        IPermit2 _permit2,
+        IMagnifyWorldSoulboundNFT _soulboundNFT,
+        IMagnifyWorldV1 _v1,
+        address _treasury
     ) external initializer {
-        __Ownable_init(msg.sender);
         __ERC20_init(_name, _symbol);
         __ERC4626_init(_asset);
+        __Ownable_init(msg.sender);
         __ReentrancyGuard_init();
+        permit2 = _permit2;
+        soulboundNFT = _soulboundNFT;
+        v1 = _v1;
+        treasury = _treasury;
+        treasuryFee = 2000;
+        defaultPenalty = 1000;
+        originationFee = 1000;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -58,14 +70,12 @@ contract MagnifyWorldV3 is
      * @dev Adds a new tier with specified parameters
      * @param _loanAmount Amount that can be borrowed in this tier
      * @param _loanPeriod Loan duration in seconds
-     * @param _orignationFee Origination Fee in basis points
      * @param _interestRate Interest rate in basis points
      */
     function addTier(
         uint8 _tier,
         uint256 _loanAmount,
         uint256 _loanPeriod,
-        uint16 _orignationFee,
         uint16 _interestRate
     ) external onlyOwner {
         if (tiers[_tier].loanAmount != 0) {
@@ -77,7 +87,6 @@ contract MagnifyWorldV3 is
         tiers[_tier] = Tier(
             _loanAmount,
             _loanPeriod,
-            _orignationFee,
             _interestRate
         );
 
@@ -89,14 +98,12 @@ contract MagnifyWorldV3 is
      * @param _tierId ID of the tier to update
      * @param _newLoanAmount New loan amount
      * @param _newLoanPeriod New loan period
-     * @param _newOrignationFee New origination Fee in basis points
      * @param _newInterestRate New interest rate
      */
     function updateTier(
         uint8 _tierId,
         uint256 _newLoanAmount,
         uint256 _newLoanPeriod,
-        uint16 _newOrignationFee,
         uint16 _newInterestRate
     ) external onlyOwner {
         if (tiers[_tierId].loanAmount == 0) {
@@ -108,7 +115,6 @@ contract MagnifyWorldV3 is
         tiers[_tierId] = Tier(
             _newLoanAmount,
             _newLoanPeriod,
-            _newOrignationFee,
             _newInterestRate
         );
 
@@ -180,8 +186,7 @@ contract MagnifyWorldV3 is
         addActiveLoan(newLoan);
         totalLoanAmount += tierInfo.loanAmount;
 
-        uint256 loanOriginationFee = tierInfo.loanAmount *
-            tierInfo.originationFee;
+        uint256 loanOriginationFee = tierInfo.loanAmount * originationFee;
 
         usdc.safeTransfer(msg.sender, tierInfo.loanAmount - loanOriginationFee);
         usdc.safeTransfer(

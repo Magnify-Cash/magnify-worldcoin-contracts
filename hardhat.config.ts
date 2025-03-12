@@ -1,4 +1,6 @@
 import { HardhatUserConfig } from "hardhat/config";
+import '@openzeppelin/hardhat-upgrades';
+import 'solidity-docgen';
 import "@nomicfoundation/hardhat-toolbox";
 import dotenv from "dotenv";
 
@@ -31,10 +33,13 @@ const config: HardhatUserConfig = {
     },
     worldChainMainnet: {
       chainId: 480,
-      url: "https://worldchain-mainnet.g.alchemy.com/v2/Gpk_py-r1-t6krNnNdpMntaAxXb3GfUq",
+      url: process.env.WORLD_CHAIN_RPC,
       accounts: [process.env.WALLET_PRIVATE_KEY],
     },
   },
+  docgen: {
+    pages: 'files'
+  }
 };
 
 export default config;

@@ -14,6 +14,9 @@ importers:
       dotenv:
         specifier: ^16.4.7
         version: 16.4.7
+      solidity-docgen:
+        specifier: 0.6.0-beta.36
+        version: 0.6.0-beta.36(hardhat@2.22.19(ts-node@10.9.2(@types/node@22.13.9)(typescript@5.8.2))(typescript@5.8.2))
     devDependencies:
       '@nomicfoundation/hardhat-chai-matchers':
         specifier: ^2.0.8
@@ -2222,6 +2225,11 @@ packages:
     hasBin: true
     peerDependencies:
       hardhat: ^2.11.0
+
+  solidity-docgen@0.6.0-beta.36:
+    resolution: {integrity: sha512-f/I5G2iJgU1h0XrrjRD0hHMr7C10u276vYvm//rw1TzFcYQ4xTOyAoi9oNAHRU0JU4mY9eTuxdVc2zahdMuhaQ==}
+    peerDependencies:
+      hardhat: ^2.8.0
 
   source-map-support@0.5.21:
     resolution: {integrity: sha512-uBHU3L3czsIyYXKX88fdrGovxdSCoTGDRZ6SYXtSRxLZUzHg5P/66Ht6uoUlHu9EZod+inXhKo3qQgwXUT/y1w==}
@@ -5499,6 +5507,12 @@ snapshots:
       semver: 7.7.1
       shelljs: 0.8.5
       web3-utils: 1.10.4
+
+  solidity-docgen@0.6.0-beta.36(hardhat@2.22.19(ts-node@10.9.2(@types/node@22.13.9)(typescript@5.8.2))(typescript@5.8.2)):
+    dependencies:
+      handlebars: 4.7.8
+      hardhat: 2.22.19(ts-node@10.9.2(@types/node@22.13.9)(typescript@5.8.2))(typescript@5.8.2)
+      solidity-ast: 0.4.59
 
   source-map-support@0.5.21:
     dependencies:
