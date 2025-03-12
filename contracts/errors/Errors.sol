@@ -27,7 +27,9 @@ library Errors {
     error NoMagnifyNFT();
     error AlreadyOwnedNFT();
     error TokenIdInvalid(uint256 tokenId);
+    error SoulboundTransferNotAllowed();
 
+    // Generic Error
     error CallerNotAdmin();
     error InputZero();
 

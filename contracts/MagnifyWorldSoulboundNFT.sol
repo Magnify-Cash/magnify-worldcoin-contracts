@@ -18,15 +18,19 @@ contract MagnifyWorldSoulboundNFT is
     uint256[50] __gap;
 
     modifier onlyAdmin() {
-        if (admins[msg.sender]) {
+        if (!admins[msg.sender]) {
             revert Errors.CallerNotAdmin();
         }
         _;
     }
 
-    function initialize(string calldata _name, string calldata _symbol) public initializer {
+    function initialize(
+        string calldata _name,
+        string calldata _symbol
+    ) public initializer {
         __ERC721_init(_name, _symbol);
         __Ownable_init(msg.sender);
+        admins[msg.sender] = true;
     }
 
     function mintNFT(address _to, uint8 _tier) public onlyAdmin {
@@ -74,12 +78,27 @@ contract MagnifyWorldSoulboundNFT is
         }
     }
 
-    function getNFTData(uint256 _tokenId) external view returns (NFTData memory) {
+    function getNFTData(
+        uint256 _tokenId
+    ) external view returns (NFTData memory) {
         return nftData[_tokenId];
     }
 
     // Set multiple admin wallets
     function setAdmin(address _address, bool _allow) external onlyOwner {
         admins[_address] = _allow;
+    }
+
+    function _update(address to, uint256 tokenId, address auth)
+        internal
+        override(ERC721Upgradeable)
+        returns (address)
+    {
+        address from = _ownerOf(tokenId);
+        if (from != address(0)) {
+            revert Errors.SoulboundTransferNotAllowed();
+        }
+
+        return super._update(to, tokenId, auth);
     }
 }

@@ -84,11 +84,7 @@ contract MagnifyWorldV3 is
         if (_loanAmount == 0 || _interestRate == 0 || _loanPeriod == 0)
             revert Errors.InputZero();
 
-        tiers[_tier] = Tier(
-            _loanAmount,
-            _loanPeriod,
-            _interestRate
-        );
+        tiers[_tier] = Tier(_loanAmount, _loanPeriod, _interestRate);
 
         // emit TierAdded(tierCount, loanAmount, interestRate, loanPeriod);
     }
@@ -112,11 +108,7 @@ contract MagnifyWorldV3 is
         if (_newLoanAmount == 0 || _newInterestRate == 0 || _newLoanPeriod == 0)
             revert Errors.InputZero();
 
-        tiers[_tierId] = Tier(
-            _newLoanAmount,
-            _newLoanPeriod,
-            _newInterestRate
-        );
+        tiers[_tierId] = Tier(_newLoanAmount, _newLoanPeriod, _newInterestRate);
 
         // emit TierUpdated(tierId, newLoanAmount, newInterestRate, newLoanPeriod);
     }
@@ -387,6 +379,43 @@ contract MagnifyWorldV3 is
     /*//////////////////////////////////////////////////////////////
                           VAULT LOGIC
     //////////////////////////////////////////////////////////////*/
+
+    function depositWithPermit2(
+        uint256 amount,
+        address receiver,
+        ISignatureTransfer.PermitTransferFrom calldata permitTransferFrom,
+        ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
+        bytes calldata signature
+    ) external returns (uint256) {
+        uint256 maxAssets = maxDeposit(receiver);
+        if (amount > maxAssets) {
+            revert ERC4626ExceededMaxDeposit(receiver, amount, maxAssets);
+        }
+        IERC20 usdc = IERC20(asset());
+        if (permitTransferFrom.permitted.token != address(usdc))
+            revert Errors.PermitInvalidToken();
+        if (permitTransferFrom.permitted.amount < amount)
+            revert Errors.PermitInvalidAmount();
+        if (transferDetails.requestedAmount != amount)
+            revert Errors.TransferInvalidAmount();
+        if (transferDetails.to != address(this))
+            revert Errors.TransferInvalidAddress();
+
+        uint256 shares = previewDeposit(amount);
+
+        permit2.permitTransferFrom(
+            permitTransferFrom,
+            transferDetails,
+            msg.sender,
+            signature
+        );
+        _mint(receiver, shares);
+
+        emit Deposit(msg.sender, receiver, amount, shares);
+
+        return shares;
+
+    }
 
     function totalAssets() public view override returns (uint256) {
         return IERC20(asset()).balanceOf(address(this)) + totalLoanAmount;
