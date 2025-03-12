@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {ERC721Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Errors} from "./errors/Errors.sol";
 import {IMagnifyWorldSoulboundNFT} from "./interfaces/IMagnifyWorldSoulboundNFT.sol";
 
 contract MagnifyWorldSoulboundNFT is
@@ -16,21 +17,21 @@ contract MagnifyWorldSoulboundNFT is
     mapping(address => bool) public admins;
     uint256[50] __gap;
 
-    error AlreadyOwnedNFT();
-
     modifier onlyAdmin() {
-        require(admins[msg.sender], "admin: called is not an admin");
+        if (admins[msg.sender]) {
+            revert Errors.CallerNotAdmin();
+        }
         _;
     }
 
-    function initialize() public initializer {
+    function initialize(string calldata _name, string calldata _symbol) public initializer {
         __Ownable_init(msg.sender);
-        __ERC721_init("Magnify World NFT", "MAGNFT");
+        __ERC721_init(_name, _symbol);
     }
 
     function mintNFT(address _to, uint8 _tier) public onlyAdmin {
         if (userToId[_to] != 0) {
-            revert AlreadyOwnedNFT();
+            revert Errors.AlreadyOwnedNFT();
         }
         tokenCount++;
         _safeMint(_to, tokenCount);
@@ -38,7 +39,7 @@ contract MagnifyWorldSoulboundNFT is
     }
 
     function upgradeTier(uint256 _tokenId, uint8 _newTier) public onlyAdmin {
-        _requireOwned(_tokenId);
+        checkNFTExists(_tokenId);
         nftData[_tokenId].tier = _newTier;
     }
 
@@ -46,6 +47,7 @@ contract MagnifyWorldSoulboundNFT is
         uint256 _tokenId,
         uint256 _interestPaid
     ) external onlyAdmin {
+        checkNFTExists(_tokenId);
         nftData[_tokenId].loansRepaid++;
         nftData[_tokenId].interestPaid += _interestPaid;
     }
@@ -54,6 +56,7 @@ contract MagnifyWorldSoulboundNFT is
         uint256 _tokenId,
         uint256 _amount
     ) external onlyAdmin {
+        checkNFTExists(_tokenId);
         nftData[_tokenId].loansDefaulted += _amount;
     }
 
@@ -61,7 +64,14 @@ contract MagnifyWorldSoulboundNFT is
         uint256 _tokenId,
         uint256 _amount
     ) external onlyAdmin {
+        checkNFTExists(_tokenId);
         nftData[_tokenId].loansDefaulted -= _amount;
+    }
+
+    function checkNFTExists(uint256 _tokenId) internal view {
+        if (nftData[_tokenId].owner == address(0)) {
+            revert Errors.TokenIdInvalid(_tokenId);
+        }
     }
 
     function getNFTData(uint256 _tokenId) external view returns (NFTData memory) {
