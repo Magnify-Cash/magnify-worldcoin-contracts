@@ -7,6 +7,7 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {Errors} from "./errors/Errors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMagnifyWorldV1} from "./interfaces/IMagnifyWorldV1.sol";
 import {IMagnifyWorldV3} from "./interfaces/IMagnifyWorldV3.sol";
@@ -68,10 +69,10 @@ contract MagnifyWorldV3 is
         uint16 _interestRate
     ) external onlyOwner {
         if (tiers[_tier].loanAmount != 0) {
-            revert("Tier exists");
+            revert Errors.TierExists();
         }
         if (_loanAmount == 0 || _interestRate == 0 || _loanPeriod == 0)
-            revert("Invalid tier parameters");
+            revert Errors.InputZero();
 
         tiers[_tier] = Tier(
             _loanAmount,
@@ -99,10 +100,10 @@ contract MagnifyWorldV3 is
         uint16 _newInterestRate
     ) external onlyOwner {
         if (tiers[_tierId].loanAmount == 0) {
-            revert("Tier does not exists");
+            revert Errors.TierNotExists();
         }
         if (_newLoanAmount == 0 || _newInterestRate == 0 || _newLoanPeriod == 0)
-            revert("Invalid tier parameters");
+            revert Errors.InputZero();
 
         tiers[_tierId] = Tier(
             _newLoanAmount,
@@ -125,17 +126,17 @@ contract MagnifyWorldV3 is
     function requestLoan(uint8 _tier) external nonReentrant {
         Tier memory tierInfo = tiers[_tier];
         if (tierInfo.loanAmount == 0) {
-            revert("Tier does not exists");
+            revert Errors.TierNotExists();
         }
         if (hasActiveLoan(msg.sender)) {
-            revert("Error has active loan");
+            revert Errors.LoanActive();
         }
         uint256 tokenId = soulboundNFT.userToId(msg.sender);
 
         if (tokenId == 0) {
             uint256 v1TokenId = v1.userNFT(msg.sender);
             if (v1TokenId == 0) {
-                revert("No NFT");
+                revert Errors.NoMagnifyNFT();
             }
             uint256 userTierId = v1.nftToTier(tokenId);
             soulboundNFT.mintNFT(msg.sender, uint8(userTierId));
@@ -147,17 +148,17 @@ contract MagnifyWorldV3 is
         );
 
         if (data.tier < _tier) {
-            revert("NFT Tier lower than requested loan tier");
+            revert Errors.TierInsufficient();
         }
 
         if (data.loansDefaulted > 0) {
-            revert("Existing loan defaulted");
+            revert Errors.DefaultDetected();
         }
 
         IERC20 usdc = IERC20(asset());
         uint256 bal = usdc.balanceOf(address(this));
         if (bal < tierInfo.loanAmount) {
-            revert("Insufficient liquidity to serve loan");
+            revert Errors.InsufficientLiquidity();
         }
         uint256 userLoanHistoryLength = v3loans[msg.sender].length;
         // Issue loan
@@ -207,7 +208,7 @@ contract MagnifyWorldV3 is
             v3loans[msg.sender].length - 1
         ];
         if (!loan.isActive) {
-            revert("No active loan");
+            revert Errors.NoLoanActive();
         }
         IERC20 usdc = IERC20(asset());
         loan.isActive = false;
@@ -215,18 +216,17 @@ contract MagnifyWorldV3 is
 
         uint256 interest = loan.loanAmount.mulDiv(loan.interestRate, 10000);
         uint256 totalDue = loan.loanAmount + interest;
-        require(
-            block.timestamp <= loan.loanTimestamp + loan.duration,
-            "Loan is expired"
-        );
+        if (block.timestamp <= loan.loanTimestamp + loan.duration) {
+            revert Errors.LoanExpired();
+        }
         if (permitTransferFrom.permitted.token != address(usdc))
-            revert("Invalid token");
+            revert Errors.PermitInvalidToken();
         if (permitTransferFrom.permitted.amount < totalDue)
-            revert("Insufficient permit amount");
+            revert Errors.PermitInvalidAmount();
         if (transferDetails.requestedAmount != totalDue)
-            revert("Invalid requested amount");
+            revert Errors.TransferInvalidAmount();
         if (transferDetails.to != address(this))
-            revert("Invalid transfer recipient");
+            revert Errors.TransferInvalidAddress();
         totalLoanAmount -= loan.loanAmount;
         removeActiveLoan(findActiveLoan(loan.loanID));
 
@@ -258,7 +258,7 @@ contract MagnifyWorldV3 is
         // V2 repayment
         LoanData storage loan = v3loans[msg.sender][_index];
         if (!loan.isDefault) {
-            revert("No active loan");
+            revert Errors.NoLoanDefault();
         }
         IERC20 usdc = IERC20(asset());
         loan.isDefault = true;
@@ -266,18 +266,15 @@ contract MagnifyWorldV3 is
         uint256 interest = loan.loanAmount.mulDiv(loan.interestRate, 10000);
         uint256 penalty = loan.loanAmount.mulDiv(defaultPenalty, 10000);
         uint256 totalDue = loan.loanAmount + interest + penalty;
-        require(
-            block.timestamp <= loan.loanTimestamp + loan.duration,
-            "Loan is expired"
-        );
+
         if (permitTransferFrom.permitted.token != address(usdc))
-            revert("Invalid token");
+            revert Errors.PermitInvalidToken();
         if (permitTransferFrom.permitted.amount < totalDue)
-            revert("Insufficient permit amount");
+            revert Errors.PermitInvalidAmount();
         if (transferDetails.requestedAmount != totalDue)
-            revert("Invalid requested amount");
+            revert Errors.TransferInvalidAmount();
         if (transferDetails.to != address(this))
-            revert("Invalid transfer recipient");
+            revert Errors.TransferInvalidAddress();
 
         permit2.permitTransferFrom(
             permitTransferFrom,
@@ -306,6 +303,56 @@ contract MagnifyWorldV3 is
         return;
     }
 
+    function addActiveLoan(LoanData memory newLoan) internal {
+        LoanData memory emptyLoan;
+        activeLoans.push(emptyLoan);
+        for (uint256 i = activeLoans.length - 1; i > 0; i--) {
+            activeLoans[i] = activeLoans[i - 1];
+        }
+        activeLoans[0] = newLoan;
+    }
+
+    function removeActiveLoan(uint256 _index) internal {
+        require(_index < activeLoans.length, "index out of bound");
+
+        for (uint256 i = _index; i < activeLoans.length - 1; i++) {
+            activeLoans[i] = activeLoans[i + 1];
+        }
+        activeLoans.pop();
+    }
+
+    function defaultLastLoan(LoanData memory oldestLoan) internal {
+        totalLoanAmount -= oldestLoan.loanAmount;
+        totalDefaults += oldestLoan.loanAmount;
+
+        soulboundNFT.increaseLoanDefault(
+            oldestLoan.tokenId,
+            oldestLoan.loanAmount
+        );
+        v3loans[oldestLoan.borrower][v3loans[oldestLoan.borrower].length - 1]
+            .isDefault = true;
+        v3loans[oldestLoan.borrower][v3loans[oldestLoan.borrower].length - 1]
+            .isActive = false;
+        activeLoans.pop();
+    }
+
+    function findActiveLoan(bytes32 id) internal view returns (uint256 index) {
+        for (uint256 i = 0; i < activeLoans.length - 1; i++) {
+            if (activeLoans[i].loanID == id) {
+                return i;
+            }
+        }
+        revert Errors.LoanIdNotFound();
+    }
+
+    function getAllActiveLoans()
+        external
+        view
+        returns (LoanData[] memory allActiveLoans)
+    {
+        return activeLoans;
+    }
+
     function hasActiveLoan(address _user) public view returns (bool) {
         uint256 length = v3loans[_user].length;
         if (length == 0) return false;
@@ -326,61 +373,15 @@ contract MagnifyWorldV3 is
         }
     }
 
-    function getAllActiveLoans()
-        external
-        view
-        returns (LoanData[] memory allActiveLoans)
-    {
-        return activeLoans;
-    }
-
     function getLoanHistory(
         address _user
     ) external view returns (LoanData[] memory loanHistory) {
         return v3loans[_user];
     }
 
-    function addActiveLoan(LoanData memory newLoan) internal {
-        LoanData memory emptyLoan;
-        activeLoans.push(emptyLoan);
-        for (uint256 i = activeLoans.length - 1; i > 0; i--) {
-            activeLoans[i] = activeLoans[i - 1];
-        }
-        activeLoans[0] = newLoan;
-    }
-
-    function removeActiveLoan(uint256 _index) internal {
-        require(_index < activeLoans.length, "index out of bound");
-
-        for (uint256 i = _index; i < activeLoans.length - 1; i++) {
-            activeLoans[i] = activeLoans[i + 1];
-        }
-        activeLoans.pop();
-    }
-
-    function findActiveLoan(bytes32 id) internal view returns (uint256 index) {
-        for (uint256 i = 0; i < activeLoans.length - 1; i++) {
-            if (activeLoans[i].loanID == id) {
-                return i;
-            }
-        }
-        revert("could not find id");
-    }
-
-    function defaultLastLoan(LoanData memory oldestLoan) internal {
-        totalLoanAmount -= oldestLoan.loanAmount;
-        totalDefaults += oldestLoan.loanAmount;
-
-        soulboundNFT.increaseLoanDefault(
-            oldestLoan.tokenId,
-            oldestLoan.loanAmount
-        );
-        v3loans[oldestLoan.borrower][v3loans[oldestLoan.borrower].length - 1]
-            .isDefault = true;
-        v3loans[oldestLoan.borrower][v3loans[oldestLoan.borrower].length - 1]
-            .isActive = false;
-        activeLoans.pop();
-    }
+    /*//////////////////////////////////////////////////////////////
+                          VAULT LOGIC
+    //////////////////////////////////////////////////////////////*/
 
     function totalAssets() public view override returns (uint256) {
         return IERC20(asset()).balanceOf(address(this)) + totalLoanAmount;

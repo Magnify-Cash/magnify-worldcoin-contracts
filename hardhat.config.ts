@@ -10,7 +10,19 @@ if (!process.env.WALLET_PRIVATE_KEY) {
 }
 
 const config: HardhatUserConfig = {
-  solidity: "0.8.28",
+  solidity: {
+    compilers: [
+      {
+        version: "0.8.28",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 20000,
+          },
+        },
+      }
+    ],
+  },
   networks: {
     worldChainTestnet: {
       chainId: 4801,
