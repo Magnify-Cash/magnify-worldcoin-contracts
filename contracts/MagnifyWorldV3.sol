@@ -15,6 +15,11 @@ import {IMagnifyWorldSoulboundNFT} from "./interfaces/IMagnifyWorldSoulboundNFT.
 import {IPermit2} from "./interfaces/IPermit2.sol";
 import {ISignatureTransfer} from "./interfaces/ISignatureTransfer.sol";
 
+
+/// @title Magnify World V3
+/// @author Jolly-Walker
+/// @notice Uncolleteralized USDC loans for World Id users, users can also provide loan liquidity to earn from loan fees
+/// @dev Inherits ERC4626 for vault logic
 contract MagnifyWorldV3 is
     IMagnifyWorldV3,
     ERC4626Upgradeable,
@@ -40,6 +45,15 @@ contract MagnifyWorldV3 is
 
     uint256[50] __gap;
 
+
+    /// Initilize function
+    /// @param _name Name of liquidity token
+    /// @param _symbol Symbol of liquidity token
+    /// @param _asset USDC address
+    /// @param _permit2 Permit2 address
+    /// @param _soulboundNFT MagnifySoulboundNFT address
+    /// @param _v1 MagnifyWorld V1 address
+    /// @param _treasury Treasury address
     function initialize(
         string calldata _name,
         string calldata _symbol,
@@ -117,10 +131,10 @@ contract MagnifyWorldV3 is
                           LOANS LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @dev Allows NFT owner to request a loan based on their tier
-     * @notice This function automatically uses the NFT associated with the msg.sender
-     */
+    /// @notice Request for uncolleteralized and receive USDC
+    /// @param _tier tier of loan to request
+    /// @dev Checks msg.sender's NFT status, if they have an eligible tier and no defaults
+    /// @dev Checks msg.sender if they have a V1 NFT to mint a soulbound NFT for them
     function requestLoan(uint8 _tier) external nonReentrant {
         Tier memory tierInfo = tiers[_tier];
         if (tierInfo.loanAmount == 0) {
@@ -418,7 +432,7 @@ contract MagnifyWorldV3 is
         return shares;
     }
 
-        /** @dev See {IERC4626-deposit}. */
+    /// @inheritdoc ERC4626Upgradeable
     function deposit(uint256 assets, address receiver) public override returns (uint256) {
         processOutdatedLoans();
         uint256 maxAssets = maxDeposit(receiver);
@@ -432,7 +446,7 @@ contract MagnifyWorldV3 is
         return shares;
     }
 
-    /** @dev See {IERC4626-mint}. */
+    /// @inheritdoc ERC4626Upgradeable
     function mint(uint256 shares, address receiver) public override returns (uint256) {
         processOutdatedLoans();
         uint256 maxShares = maxMint(receiver);
@@ -446,7 +460,7 @@ contract MagnifyWorldV3 is
         return assets;
     }
 
-    /** @dev See {IERC4626-withdraw}. */
+    /// @inheritdoc ERC4626Upgradeable
     function withdraw(uint256 assets, address receiver, address owner) public override returns (uint256) {
         processOutdatedLoans();
         uint256 maxAssets = maxWithdraw(owner);
@@ -460,7 +474,7 @@ contract MagnifyWorldV3 is
         return shares;
     }
 
-    /** @dev See {IERC4626-redeem}. */
+    /// @inheritdoc ERC4626Upgradeable
     function redeem(uint256 shares, address receiver, address owner) public override returns (uint256) {
         processOutdatedLoans();
         uint256 maxShares = maxRedeem(owner);
@@ -475,6 +489,7 @@ contract MagnifyWorldV3 is
     }
 
 
+    /// @inheritdoc ERC4626Upgradeable
     function totalAssets() public view override returns (uint256) {
         return IERC20(asset()).balanceOf(address(this)) + totalLoanAmount;
     }
