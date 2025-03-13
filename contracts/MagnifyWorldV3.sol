@@ -289,7 +289,8 @@ contract MagnifyWorldV3 is
         // emit LoanRepaid(tokenId, totalDue, msg.sender);
     }
 
-    function processOutdatedLoans() external nonReentrant {
+    function processOutdatedLoans() public nonReentrant {
+        if (activeLoans.length == 0) return;
         LoanData memory oldestLoan = activeLoans[activeLoans.length - 1];
         while (
             oldestLoan.loanTimestamp + oldestLoan.duration < block.timestamp
@@ -387,6 +388,7 @@ contract MagnifyWorldV3 is
         ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
         bytes calldata signature
     ) external returns (uint256) {
+        processOutdatedLoans();
         uint256 maxAssets = maxDeposit(receiver);
         if (amount > maxAssets) {
             revert ERC4626ExceededMaxDeposit(receiver, amount, maxAssets);
@@ -414,8 +416,64 @@ contract MagnifyWorldV3 is
         emit Deposit(msg.sender, receiver, amount, shares);
 
         return shares;
-
     }
+
+        /** @dev See {IERC4626-deposit}. */
+    function deposit(uint256 assets, address receiver) public override returns (uint256) {
+        processOutdatedLoans();
+        uint256 maxAssets = maxDeposit(receiver);
+        if (assets > maxAssets) {
+            revert ERC4626ExceededMaxDeposit(receiver, assets, maxAssets);
+        }
+
+        uint256 shares = previewDeposit(assets);
+        _deposit(_msgSender(), receiver, assets, shares);
+
+        return shares;
+    }
+
+    /** @dev See {IERC4626-mint}. */
+    function mint(uint256 shares, address receiver) public override returns (uint256) {
+        processOutdatedLoans();
+        uint256 maxShares = maxMint(receiver);
+        if (shares > maxShares) {
+            revert ERC4626ExceededMaxMint(receiver, shares, maxShares);
+        }
+
+        uint256 assets = previewMint(shares);
+        _deposit(_msgSender(), receiver, assets, shares);
+
+        return assets;
+    }
+
+    /** @dev See {IERC4626-withdraw}. */
+    function withdraw(uint256 assets, address receiver, address owner) public override returns (uint256) {
+        processOutdatedLoans();
+        uint256 maxAssets = maxWithdraw(owner);
+        if (assets > maxAssets) {
+            revert ERC4626ExceededMaxWithdraw(owner, assets, maxAssets);
+        }
+
+        uint256 shares = previewWithdraw(assets);
+        _withdraw(_msgSender(), receiver, owner, assets, shares);
+
+        return shares;
+    }
+
+    /** @dev See {IERC4626-redeem}. */
+    function redeem(uint256 shares, address receiver, address owner) public override returns (uint256) {
+        processOutdatedLoans();
+        uint256 maxShares = maxRedeem(owner);
+        if (shares > maxShares) {
+            revert ERC4626ExceededMaxRedeem(owner, shares, maxShares);
+        }
+
+        uint256 assets = previewRedeem(shares);
+        _withdraw(_msgSender(), receiver, owner, assets, shares);
+
+        return assets;
+    }
+
 
     function totalAssets() public view override returns (uint256) {
         return IERC20(asset()).balanceOf(address(this)) + totalLoanAmount;
