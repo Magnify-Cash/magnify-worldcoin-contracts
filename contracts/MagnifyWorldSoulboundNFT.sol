@@ -11,6 +11,7 @@ contract MagnifyWorldSoulboundNFT is
     OwnableUpgradeable,
     IMagnifyWorldSoulboundNFT
 {
+    string public baseURI;
     uint256 public tokenCount;
     mapping(uint256 => NFTData) public nftData;
     mapping(address => uint256) public userToId;
@@ -72,6 +73,10 @@ contract MagnifyWorldSoulboundNFT is
         nftData[_tokenId].loansDefaulted -= _amount;
     }
 
+    function setBaseURI(string calldata _newBaseURI) external onlyAdmin {
+        baseURI = _newBaseURI;
+    }
+
     function checkNFTExists(uint256 _tokenId) internal view {
         if (nftData[_tokenId].owner == address(0)) {
             revert Errors.TokenIdInvalid(_tokenId);
@@ -100,5 +105,9 @@ contract MagnifyWorldSoulboundNFT is
         }
 
         return super._update(to, tokenId, auth);
+    }
+
+    function _baseURI() internal view override returns (string memory) {
+        return baseURI;
     }
 }
