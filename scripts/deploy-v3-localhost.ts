@@ -89,14 +89,50 @@ async function setup(
   // mint owner nft
   await magnifyWorldSoulboundNFT.mintNFT(OWNER, 99);
 
-  await mockToken.approve(await magnifyWorldV3.getAddress(), mintAmount);
-  await magnifyWorldV3.deposit(mintAmount, OWNER);
+  await mockToken.approve(await mockPermit2.getAddress(), ethers.MaxUint256);
+  const { permitTransfer, transferDetails } = await getPermit2Params(
+    mockToken,
+    await magnifyWorldV3.getAddress(),
+    mintAmount.toString()
+  );
+  await magnifyWorldV3.depositWithPermit2(
+    mintAmount,
+    OWNER,
+    permitTransfer,
+    transferDetails,
+    "0x0001"
+  );
 
   console.log("balance of loan lp:", await magnifyWorldV3.balanceOf(OWNER));
-  console.log("value of loan lp:", await magnifyWorldV3.convertToAssets(await magnifyWorldV3.balanceOf(OWNER)));
+  console.log(
+    "value of loan lp:",
+    await magnifyWorldV3.convertToAssets(await magnifyWorldV3.balanceOf(OWNER))
+  );
   await mockToken.mint(await magnifyWorldV3.getAddress(), mintAmount);
-  console.log("value of loan lp:", await magnifyWorldV3.convertToAssets(await magnifyWorldV3.balanceOf(OWNER)));
+  console.log(
+    "value of loan lp:",
+    await magnifyWorldV3.convertToAssets(await magnifyWorldV3.balanceOf(OWNER))
+  );
+}
 
+async function getPermit2Params(token: MockERC20, to: string, amount: string) {
+  const deadline = Math.floor((Date.now() + 30 * 60 * 1000) / 1000).toString();
+
+  const permitTransfer = {
+    permitted: {
+      token: await token.getAddress(),
+      amount: amount,
+    },
+    nonce: Date.now().toString(),
+    deadline,
+  };
+
+  const transferDetails = {
+    to: to,
+    requestedAmount: amount,
+  };
+
+  return { permitTransfer, transferDetails };
 }
 
 async function main() {
