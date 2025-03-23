@@ -46,4 +46,6 @@ interface IMagnifyWorldSoulboundNFT {
     function mintNFT(address _to, uint8 _tier) external;
 
     function getNFTData(uint256 _tokenId) external view returns (NFTData memory);
+
+    function addNewLoan(uint256 _tokenId, uint256 _index) external;
 }

@@ -90,6 +90,12 @@ contract MagnifyWorldSoulboundNFT is
         nftData[_tokenId].loansDefaulted -= _amount;
     }
 
+    function addNewLoan(uint256 _tokenId, uint256 _index) external onlyAdmin {
+        checkNFTExists(_tokenId);
+        nftData[_tokenId].ongoingLoan = true;
+        loanHistory[_tokenId].push(Loan(msg.sender, _index));
+    }
+
     function setBaseURI(string calldata _newBaseURI) external onlyAdmin {
         baseURI = _newBaseURI;
     }

@@ -87,33 +87,12 @@ contract MagnifyWorldV3 is
     /// @dev Checks msg.sender's NFT status, if they have an eligible tier and no defaults
     /// @dev Checks msg.sender if they have a V1 NFT to mint a soulbound NFT for them
     function requestLoan() external nonReentrant {
-        if (hasActiveLoan(msg.sender)) {
-            revert Errors.LoanActive();
-        }
+        if (hasActiveLoan(msg.sender)) revert Errors.LoanActive();
         uint256 tokenId = soulboundNFT.userToId(msg.sender);
-
         if (tokenId == 0) {
-            uint256 v1TokenId = v1.userNFT(msg.sender);
-            if (v1TokenId == 0) {
-                revert Errors.NoMagnifyNFT();
-            }
-            uint256 userTierId = v1.nftToTier(tokenId);
-            soulboundNFT.mintNFT(msg.sender, uint8(userTierId));
-            tokenId = soulboundNFT.userToId(msg.sender);
+            tokenId = migrateFromV1(msg.sender);
         }
-        // get tier and NFT data
-        IMagnifyWorldSoulboundNFT.NFTData memory data = soulboundNFT.getNFTData(
-            tokenId
-        );
-
-        if (data.tier < tier) {
-            revert Errors.TierInsufficient();
-        }
-
-        if (data.loansDefaulted > 0) {
-            revert Errors.DefaultDetected();
-        }
-
+        checkNFTValid(tokenId);
         IERC20 usdc = IERC20(asset());
         uint256 bal = usdc.balanceOf(address(this));
         if (bal < loanAmount) {
@@ -138,6 +117,7 @@ contract MagnifyWorldV3 is
         loans[msg.sender].push(newLoan);
         addActiveLoan(newLoan);
         totalLoanAmount += loanAmount;
+        soulboundNFT.addNewLoan(tokenId, userLoanHistoryLength);
 
         uint256 loanOriginationFee = loanAmount * originationFee;
 
@@ -162,30 +142,23 @@ contract MagnifyWorldV3 is
         bytes calldata signature
     ) external nonReentrant {
         // V2 repayment
-        LoanData storage loan = loans[msg.sender][loans[msg.sender].length - 1];
+        LoanData memory loan = loans[msg.sender][loans[msg.sender].length - 1];
         if (!loan.isActive) {
             revert Errors.NoLoanActive();
         }
-        IERC20 usdc = IERC20(asset());
-        loan.isActive = false;
-        loan.repaymentTimestamp = block.timestamp;
-
-        uint256 interest = loan.loanAmount.mulDiv(loan.interestRate, 10000);
-        uint256 totalDue = loan.loanAmount + interest;
         if (block.timestamp <= loan.loanTimestamp + loan.duration) {
             revert Errors.LoanExpired();
         }
-        if (permitTransferFrom.permitted.token != address(usdc))
-            revert Errors.PermitInvalidToken();
-        if (permitTransferFrom.permitted.amount < totalDue)
-            revert Errors.PermitInvalidAmount();
-        if (transferDetails.requestedAmount != totalDue)
-            revert Errors.TransferInvalidAmount();
-        if (transferDetails.to != address(this))
-            revert Errors.TransferInvalidAddress();
+        IERC20 usdc = IERC20(asset());
+        uint256 interest = loan.loanAmount.mulDiv(loan.interestRate, 10000);
+        uint256 totalDue = loan.loanAmount + interest;
+        checkPermitDataValid(permitTransferFrom, transferDetails, totalDue);
+
         totalLoanAmount -= loan.loanAmount;
         removeActiveLoan(findActiveLoan(loan.loanID));
-
+        loan.isActive = false;
+        loan.repaymentTimestamp = block.timestamp;
+        loans[msg.sender][loans[msg.sender].length - 1] = loan;
         permit2.permitTransferFrom(
             permitTransferFrom,
             transferDetails,
@@ -223,14 +196,7 @@ contract MagnifyWorldV3 is
         uint256 penalty = loan.loanAmount.mulDiv(defaultPenalty, 10000);
         uint256 totalDue = loan.loanAmount + interest + penalty;
 
-        if (permitTransferFrom.permitted.token != address(usdc))
-            revert Errors.PermitInvalidToken();
-        if (permitTransferFrom.permitted.amount < totalDue)
-            revert Errors.PermitInvalidAmount();
-        if (transferDetails.requestedAmount != totalDue)
-            revert Errors.TransferInvalidAmount();
-        if (transferDetails.to != address(this))
-            revert Errors.TransferInvalidAddress();
+        checkPermitDataValid(permitTransferFrom, transferDetails, totalDue);
 
         permit2.permitTransferFrom(
             permitTransferFrom,
@@ -259,6 +225,8 @@ contract MagnifyWorldV3 is
         }
         return;
     }
+
+    // internal
 
     function addActiveLoan(LoanData memory newLoan) internal {
         LoanData memory emptyLoan;
@@ -301,6 +269,53 @@ contract MagnifyWorldV3 is
         }
         revert Errors.LoanIdNotFound();
     }
+
+    function checkNFTValid(uint256 tokenId) internal view {
+        // get tier and NFT data
+        IMagnifyWorldSoulboundNFT.NFTData memory data = soulboundNFT.getNFTData(
+            tokenId
+        );
+
+        if (data.ongoingLoan) {
+            revert Errors.LoanActive();
+        }
+
+        if (data.tier < tier) {
+            revert Errors.TierInsufficient();
+        }
+
+        if (data.loansDefaulted > 0) {
+            revert Errors.DefaultDetected();
+        }
+    }
+
+    function checkPermitDataValid(
+        ISignatureTransfer.PermitTransferFrom calldata permitTransferFrom,
+        ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
+        uint256 amount
+    ) internal view {
+        if (permitTransferFrom.permitted.token != asset())
+            revert Errors.PermitInvalidToken();
+        if (permitTransferFrom.permitted.amount < amount)
+            revert Errors.PermitInvalidAmount();
+        if (transferDetails.requestedAmount != amount)
+            revert Errors.TransferInvalidAmount();
+        if (transferDetails.to != address(this))
+            revert Errors.TransferInvalidAddress();
+    }
+
+    function migrateFromV1(address user) internal returns (uint256) {
+        uint256 v1TokenId = v1.userNFT(user);
+        if (v1TokenId == 0) {
+            revert Errors.NoMagnifyNFT();
+        }
+        uint256 userTierId = v1.nftToTier(v1TokenId);
+        soulboundNFT.mintNFT(user, uint8(userTierId));
+
+        return soulboundNFT.userToId(user);
+    }
+
+    // external view
 
     function getAllActiveLoans()
         external
@@ -350,9 +365,6 @@ contract MagnifyWorldV3 is
                           DURATION LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    
-
-
     /*//////////////////////////////////////////////////////////////
                           VAULT LOGIC
     //////////////////////////////////////////////////////////////*/
@@ -369,15 +381,7 @@ contract MagnifyWorldV3 is
         if (amount > maxAssets) {
             revert ERC4626ExceededMaxDeposit(receiver, amount, maxAssets);
         }
-        IERC20 usdc = IERC20(asset());
-        if (permitTransferFrom.permitted.token != address(usdc))
-            revert Errors.PermitInvalidToken();
-        if (permitTransferFrom.permitted.amount < amount)
-            revert Errors.PermitInvalidAmount();
-        if (transferDetails.requestedAmount != amount)
-            revert Errors.TransferInvalidAmount();
-        if (transferDetails.to != address(this))
-            revert Errors.TransferInvalidAddress();
+        checkPermitDataValid(permitTransferFrom, transferDetails, amount);
 
         uint256 shares = previewDeposit(amount);
 
