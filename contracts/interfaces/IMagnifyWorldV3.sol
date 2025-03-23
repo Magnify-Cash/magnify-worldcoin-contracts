@@ -27,4 +27,6 @@ interface IMagnifyWorldV3 {
         uint256 loanPeriod;
         uint16 interestRate;
     }
+
+    function getLoan(address, uint256) external view returns(LoanData memory);
 }

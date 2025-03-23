@@ -5,6 +5,7 @@ import {ERC721Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC72
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Errors} from "./errors/Errors.sol";
 import {IMagnifyWorldSoulboundNFT} from "./interfaces/IMagnifyWorldSoulboundNFT.sol";
+import {IMagnifyWorldV3} from "./interfaces/IMagnifyWorldV3.sol";
 
 contract MagnifyWorldSoulboundNFT is
     ERC721Upgradeable,
@@ -13,6 +14,8 @@ contract MagnifyWorldSoulboundNFT is
 {
     string public baseURI;
     uint256 public tokenCount;
+    IMagnifyWorldV3[] public magnifyPools;
+    mapping(uint256 => Loan[]) public loanHistory;
     mapping(uint256 => NFTData) public nftData;
     mapping(address => uint256) public userToId;
     mapping(address => bool) public admins;
@@ -40,12 +43,26 @@ contract MagnifyWorldSoulboundNFT is
         }
         tokenCount++;
         _safeMint(_to, tokenCount);
-        nftData[tokenCount] = NFTData(0, 0, 0, _to, _tier);
+        nftData[tokenCount] = NFTData(0, 0, 0, _to, _tier, false);
     }
 
     function upgradeTier(uint256 _tokenId, uint8 _newTier) public onlyAdmin {
         checkNFTExists(_tokenId);
         nftData[_tokenId].tier = _newTier;
+    }
+
+    function setOngoingLoan(
+        uint256 _tokenId
+    ) external onlyAdmin {
+        checkNFTExists(_tokenId);
+        nftData[_tokenId].ongoingLoan = true;
+    }
+
+    function removeOngoingLoan(
+        uint256 _tokenId
+    ) external onlyAdmin {
+        checkNFTExists(_tokenId);
+        nftData[_tokenId].ongoingLoan = false;
     }
 
     function increaseloanRepayment(
@@ -89,6 +106,20 @@ contract MagnifyWorldSoulboundNFT is
         return nftData[_tokenId];
     }
 
+    function getLoanHistory(uint256 _tokenId) external view returns (Loan[] memory) {
+        return loanHistory[_tokenId];
+    }
+
+    function getLoanHistoryData(uint256 _tokenId) external view returns (IMagnifyWorldV3.LoanData[] memory) {
+        IMagnifyWorldV3.LoanData[] memory data = new IMagnifyWorldV3.LoanData[](loanHistory[_tokenId].length);
+        address user = _ownerOf(_tokenId);
+        for (uint256 i = 0; i < loanHistory[_tokenId].length; i++) {
+            IMagnifyWorldV3 v3 = IMagnifyWorldV3(loanHistory[_tokenId][i].loanAddress); 
+            data[i] = v3.getLoan(user, loanHistory[_tokenId][i].loanIndex);
+        }
+        return data;
+    }
+
     // Set multiple admin wallets
     function setAdmin(address _address, bool _allow) external onlyOwner {
         admins[_address] = _allow;
@@ -105,6 +136,11 @@ contract MagnifyWorldSoulboundNFT is
         }
 
         return super._update(to, tokenId, auth);
+    }
+
+    function addMagnifyPool(IMagnifyWorldV3 _newPool) external onlyAdmin {
+        magnifyPools.push(_newPool);
+        admins[address(_newPool)] = true;
     }
 
     function _baseURI() internal view override returns (string memory) {

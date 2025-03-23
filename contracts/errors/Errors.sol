@@ -30,6 +30,7 @@ library Errors {
     error SoulboundTransferNotAllowed();
 
     // Generic Error
+    error OutOfBoundsArray();
     error CallerNotAdmin();
     error InputZero();
 

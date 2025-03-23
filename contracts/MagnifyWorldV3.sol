@@ -15,7 +15,6 @@ import {IMagnifyWorldSoulboundNFT} from "./interfaces/IMagnifyWorldSoulboundNFT.
 import {IPermit2} from "./interfaces/IPermit2.sol";
 import {ISignatureTransfer} from "./interfaces/ISignatureTransfer.sol";
 
-
 /// @title Magnify World V3
 /// @author Jolly-Walker
 /// @notice Uncolleteralized USDC loans for World Id users, users can also provide loan liquidity to earn from loan fees
@@ -34,17 +33,21 @@ contract MagnifyWorldV3 is
     IPermit2 public permit2;
     uint256 public totalLoanAmount;
     uint256 public totalDefaults;
+    uint256 public loanAmount;
+    uint256 public loanPeriod;
+    uint256 public startTimestamp;
+    uint256 public endTimestamp;
     address public treasury;
     uint16 public treasuryFee;
     uint16 public defaultPenalty;
     uint16 public originationFee;
+    uint16 public loanInterestRate;
+    uint8 public tier;
     LoanData[] public activeLoans;
 
-    mapping(address => LoanData[]) public v3loans;
-    mapping(uint8 => Tier) public tiers;
+    mapping(address => LoanData[]) public loans;
 
     uint256[50] __gap;
-
 
     /// Initilize function
     /// @param _name Name of liquidity token
@@ -77,69 +80,13 @@ contract MagnifyWorldV3 is
     }
 
     /*//////////////////////////////////////////////////////////////
-                          TIERS LOGIC
-    //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @dev Adds a new tier with specified parameters
-     * @param _loanAmount Amount that can be borrowed in this tier
-     * @param _loanPeriod Loan duration in seconds
-     * @param _interestRate Interest rate in basis points
-     */
-    function addTier(
-        uint8 _tier,
-        uint256 _loanAmount,
-        uint256 _loanPeriod,
-        uint16 _interestRate
-    ) external onlyOwner {
-        if (tiers[_tier].loanAmount != 0) {
-            revert Errors.TierExists();
-        }
-        if (_loanAmount == 0 || _interestRate == 0 || _loanPeriod == 0)
-            revert Errors.InputZero();
-
-        tiers[_tier] = Tier(_loanAmount, _loanPeriod, _interestRate);
-
-        // emit TierAdded(tierCount, loanAmount, interestRate, loanPeriod);
-    }
-
-    /**
-     * @dev Updates an existing tier's parameters
-     * @param _tierId ID of the tier to update
-     * @param _newLoanAmount New loan amount
-     * @param _newLoanPeriod New loan period
-     * @param _newInterestRate New interest rate
-     */
-    function updateTier(
-        uint8 _tierId,
-        uint256 _newLoanAmount,
-        uint256 _newLoanPeriod,
-        uint16 _newInterestRate
-    ) external onlyOwner {
-        if (tiers[_tierId].loanAmount == 0) {
-            revert Errors.TierNotExists();
-        }
-        if (_newLoanAmount == 0 || _newInterestRate == 0 || _newLoanPeriod == 0)
-            revert Errors.InputZero();
-
-        tiers[_tierId] = Tier(_newLoanAmount, _newLoanPeriod, _newInterestRate);
-
-        // emit TierUpdated(tierId, newLoanAmount, newInterestRate, newLoanPeriod);
-    }
-
-    /*//////////////////////////////////////////////////////////////
                           LOANS LOGIC
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Request for uncolleteralized and receive USDC
-    /// @param _tier tier of loan to request
     /// @dev Checks msg.sender's NFT status, if they have an eligible tier and no defaults
     /// @dev Checks msg.sender if they have a V1 NFT to mint a soulbound NFT for them
-    function requestLoan(uint8 _tier) external nonReentrant {
-        Tier memory tierInfo = tiers[_tier];
-        if (tierInfo.loanAmount == 0) {
-            revert Errors.TierNotExists();
-        }
+    function requestLoan() external nonReentrant {
         if (hasActiveLoan(msg.sender)) {
             revert Errors.LoanActive();
         }
@@ -159,7 +106,7 @@ contract MagnifyWorldV3 is
             tokenId
         );
 
-        if (data.tier < _tier) {
+        if (data.tier < tier) {
             revert Errors.TierInsufficient();
         }
 
@@ -169,32 +116,32 @@ contract MagnifyWorldV3 is
 
         IERC20 usdc = IERC20(asset());
         uint256 bal = usdc.balanceOf(address(this));
-        if (bal < tierInfo.loanAmount) {
+        if (bal < loanAmount) {
             revert Errors.InsufficientLiquidity();
         }
-        uint256 userLoanHistoryLength = v3loans[msg.sender].length;
+        uint256 userLoanHistoryLength = loans[msg.sender].length;
         // Issue loan
         LoanData memory newLoan = LoanData(
             keccak256(abi.encode(msg.sender, userLoanHistoryLength)),
             tokenId,
-            tierInfo.loanAmount,
+            loanAmount,
             block.timestamp,
-            tierInfo.loanPeriod,
+            loanPeriod,
             0,
             msg.sender,
-            tierInfo.interestRate,
-            _tier,
+            loanInterestRate,
+            tier,
             false,
             true
         );
 
-        v3loans[msg.sender].push(newLoan);
+        loans[msg.sender].push(newLoan);
         addActiveLoan(newLoan);
-        totalLoanAmount += tierInfo.loanAmount;
+        totalLoanAmount += loanAmount;
 
-        uint256 loanOriginationFee = tierInfo.loanAmount * originationFee;
+        uint256 loanOriginationFee = loanAmount * originationFee;
 
-        usdc.safeTransfer(msg.sender, tierInfo.loanAmount - loanOriginationFee);
+        usdc.safeTransfer(msg.sender, loanAmount - loanOriginationFee);
         usdc.safeTransfer(
             msg.sender,
             loanOriginationFee.mulDiv(treasuryFee, 10000)
@@ -215,9 +162,7 @@ contract MagnifyWorldV3 is
         bytes calldata signature
     ) external nonReentrant {
         // V2 repayment
-        LoanData storage loan = v3loans[msg.sender][
-            v3loans[msg.sender].length - 1
-        ];
+        LoanData storage loan = loans[msg.sender][loans[msg.sender].length - 1];
         if (!loan.isActive) {
             revert Errors.NoLoanActive();
         }
@@ -267,7 +212,7 @@ contract MagnifyWorldV3 is
         bytes calldata signature
     ) external nonReentrant {
         // V2 repayment
-        LoanData storage loan = v3loans[msg.sender][_index];
+        LoanData storage loan = loans[msg.sender][_index];
         if (!loan.isDefault) {
             revert Errors.NoLoanDefault();
         }
@@ -341,9 +286,9 @@ contract MagnifyWorldV3 is
             oldestLoan.tokenId,
             oldestLoan.loanAmount
         );
-        v3loans[oldestLoan.borrower][v3loans[oldestLoan.borrower].length - 1]
+        loans[oldestLoan.borrower][loans[oldestLoan.borrower].length - 1]
             .isDefault = true;
-        v3loans[oldestLoan.borrower][v3loans[oldestLoan.borrower].length - 1]
+        loans[oldestLoan.borrower][loans[oldestLoan.borrower].length - 1]
             .isActive = false;
         activeLoans.pop();
     }
@@ -366,10 +311,10 @@ contract MagnifyWorldV3 is
     }
 
     function hasActiveLoan(address _user) public view returns (bool) {
-        uint256 length = v3loans[_user].length;
+        uint256 length = loans[_user].length;
         if (length == 0) return false;
 
-        LoanData memory latestLoan = v3loans[_user][length - 1];
+        LoanData memory latestLoan = loans[_user][length - 1];
 
         return latestLoan.isActive;
     }
@@ -378,18 +323,35 @@ contract MagnifyWorldV3 is
         address _user
     ) external view returns (LoanData memory loan) {
         if (hasActiveLoan(_user)) {
-            return v3loans[_user][v3loans[_user].length - 1];
+            return loans[_user][loans[_user].length - 1];
         } else {
             LoanData memory emptyLoan;
             return emptyLoan;
         }
     }
 
+    function getLoan(
+        address _user,
+        uint256 _index
+    ) external view returns (LoanData memory loan) {
+        if (_index >= loans[_user].length) {
+            revert Errors.OutOfBoundsArray();
+        }
+        return loans[_user][_index];
+    }
+
     function getLoanHistory(
         address _user
     ) external view returns (LoanData[] memory loanHistory) {
-        return v3loans[_user];
+        return loans[_user];
     }
+
+    /*//////////////////////////////////////////////////////////////
+                          DURATION LOGIC
+    //////////////////////////////////////////////////////////////*/
+
+    
+
 
     /*//////////////////////////////////////////////////////////////
                           VAULT LOGIC
@@ -433,7 +395,10 @@ contract MagnifyWorldV3 is
     }
 
     /// @inheritdoc ERC4626Upgradeable
-    function deposit(uint256 assets, address receiver) public override returns (uint256) {
+    function deposit(
+        uint256 assets,
+        address receiver
+    ) public override returns (uint256) {
         processOutdatedLoans();
         uint256 maxAssets = maxDeposit(receiver);
         if (assets > maxAssets) {
@@ -447,7 +412,10 @@ contract MagnifyWorldV3 is
     }
 
     /// @inheritdoc ERC4626Upgradeable
-    function mint(uint256 shares, address receiver) public override returns (uint256) {
+    function mint(
+        uint256 shares,
+        address receiver
+    ) public override returns (uint256) {
         processOutdatedLoans();
         uint256 maxShares = maxMint(receiver);
         if (shares > maxShares) {
@@ -461,7 +429,11 @@ contract MagnifyWorldV3 is
     }
 
     /// @inheritdoc ERC4626Upgradeable
-    function withdraw(uint256 assets, address receiver, address owner) public override returns (uint256) {
+    function withdraw(
+        uint256 assets,
+        address receiver,
+        address owner
+    ) public override returns (uint256) {
         processOutdatedLoans();
         uint256 maxAssets = maxWithdraw(owner);
         if (assets > maxAssets) {
@@ -475,7 +447,11 @@ contract MagnifyWorldV3 is
     }
 
     /// @inheritdoc ERC4626Upgradeable
-    function redeem(uint256 shares, address receiver, address owner) public override returns (uint256) {
+    function redeem(
+        uint256 shares,
+        address receiver,
+        address owner
+    ) public override returns (uint256) {
         processOutdatedLoans();
         uint256 maxShares = maxRedeem(owner);
         if (shares > maxShares) {
@@ -487,7 +463,6 @@ contract MagnifyWorldV3 is
 
         return assets;
     }
-
 
     /// @inheritdoc ERC4626Upgradeable
     function totalAssets() public view override returns (uint256) {
