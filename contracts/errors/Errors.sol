@@ -23,6 +23,11 @@ library Errors {
     error TransferInvalidAmount();
     error TransferInvalidAddress();
 
+    // Pool Period Errors
+    error PoolNotActive();
+    error NoWithdrawWhenActive();
+
+
     // NFT Errors
     error NoMagnifyNFT();
     error AlreadyOwnedNFT();

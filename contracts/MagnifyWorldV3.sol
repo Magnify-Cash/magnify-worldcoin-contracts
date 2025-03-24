@@ -39,9 +39,10 @@ contract MagnifyWorldV3 is
     uint256 public endTimestamp;
     address public treasury;
     uint16 public treasuryFee;
-    uint16 public defaultPenalty;
     uint16 public originationFee;
     uint16 public loanInterestRate;
+    uint16 public defaultPenalty;
+    uint16 public earlyExitFee;
     uint8 public tier;
     LoanData[] public activeLoans;
 
@@ -49,14 +50,12 @@ contract MagnifyWorldV3 is
 
     // Events
 
-
     /// Initilize function
     /// @param _name Name of liquidity token
     /// @param _symbol Symbol of liquidity token
     /// @param _asset USDC address
     /// @param _permit2 Permit2 address
     /// @param _soulboundNFT MagnifySoulboundNFT address
-    /// @param _v1 MagnifyWorld V1 address
     /// @param _treasury Treasury address
     function initialize(
         string calldata _name,
@@ -64,7 +63,6 @@ contract MagnifyWorldV3 is
         IERC20 _asset,
         IPermit2 _permit2,
         IMagnifyWorldSoulboundNFT _soulboundNFT,
-        IMagnifyWorldV1 _v1,
         address _treasury
     ) external initializer {
         __ERC20_init(_name, _symbol);
@@ -73,7 +71,6 @@ contract MagnifyWorldV3 is
         __ReentrancyGuard_init();
         permit2 = _permit2;
         soulboundNFT = _soulboundNFT;
-        v1 = _v1;
         treasury = _treasury;
         treasuryFee = 2000;
         defaultPenalty = 1000;
@@ -104,10 +101,16 @@ contract MagnifyWorldV3 is
     /// @dev Checks msg.sender's NFT status, if they have an eligible tier and no defaults
     /// @dev Checks msg.sender if they have a V1 NFT to mint a soulbound NFT for them
     function requestLoan() external nonReentrant {
+        if (
+            block.timestamp < startTimestamp ||
+            block.timestamp >= endTimestamp - loanPeriod
+        ) {
+            revert Errors.PoolNotActive();
+        }
         if (hasActiveLoan(msg.sender)) revert Errors.LoanActive();
         uint256 tokenId = soulboundNFT.userToId(msg.sender);
         if (tokenId == 0) {
-            tokenId = migrateFromV1(msg.sender);
+            revert Errors.NoMagnifyNFT();
         }
         checkNFTValid(tokenId);
         IERC20 usdc = IERC20(asset());
@@ -136,7 +139,7 @@ contract MagnifyWorldV3 is
 
         usdc.safeTransfer(msg.sender, loanAmount - loanOriginationFee);
         usdc.safeTransfer(
-            msg.sender,
+            treasury,
             loanOriginationFee.mulDiv(treasuryFee, 10000)
         );
 
@@ -154,7 +157,6 @@ contract MagnifyWorldV3 is
         ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
         bytes calldata signature
     ) external nonReentrant {
-        // V2 repayment
         LoanData memory loan = loans[msg.sender][loans[msg.sender].length - 1];
         if (!loan.isActive) {
             revert Errors.NoLoanActive();
@@ -230,9 +232,7 @@ contract MagnifyWorldV3 is
     function processOutdatedLoans() public nonReentrant {
         if (activeLoans.length == 0) return;
         LoanData memory oldestLoan = activeLoans[activeLoans.length - 1];
-        while (
-            oldestLoan.loanTimestamp + loanPeriod < block.timestamp
-        ) {
+        while (oldestLoan.loanTimestamp + loanPeriod < block.timestamp) {
             defaultLastLoan(oldestLoan);
             oldestLoan = activeLoans[activeLoans.length - 1];
         }
@@ -263,10 +263,7 @@ contract MagnifyWorldV3 is
         totalLoanAmount -= loanAmount;
         totalDefaults += loanAmount;
 
-        soulboundNFT.increaseLoanDefault(
-            oldestLoan.tokenId,
-            loanAmount
-        );
+        soulboundNFT.increaseLoanDefault(oldestLoan.tokenId, loanAmount);
         loans[oldestLoan.borrower][loans[oldestLoan.borrower].length - 1]
             .isDefault = true;
         loans[oldestLoan.borrower][loans[oldestLoan.borrower].length - 1]
@@ -315,17 +312,6 @@ contract MagnifyWorldV3 is
             revert Errors.TransferInvalidAmount();
         if (transferDetails.to != address(this))
             revert Errors.TransferInvalidAddress();
-    }
-
-    function migrateFromV1(address user) internal returns (uint256) {
-        uint256 v1TokenId = v1.userNFT(user);
-        if (v1TokenId == 0) {
-            revert Errors.NoMagnifyNFT();
-        }
-        uint256 userTierId = v1.nftToTier(v1TokenId);
-        soulboundNFT.mintNFT(user, uint8(userTierId));
-
-        return soulboundNFT.userToId(user);
     }
 
     // external view
@@ -378,6 +364,13 @@ contract MagnifyWorldV3 is
                           DURATION LOGIC
     //////////////////////////////////////////////////////////////*/
 
+    modifier onlyValidDepositTime() {
+        if (block.timestamp >= endTimestamp - loanPeriod) {
+            revert Errors.PoolNotActive();
+        }
+        _;
+    }
+
     /*//////////////////////////////////////////////////////////////
                           VAULT LOGIC
     //////////////////////////////////////////////////////////////*/
@@ -388,7 +381,7 @@ contract MagnifyWorldV3 is
         ISignatureTransfer.PermitTransferFrom calldata permitTransferFrom,
         ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
         bytes calldata signature
-    ) external returns (uint256) {
+    ) external onlyValidDepositTime returns (uint256) {
         processOutdatedLoans();
         uint256 maxAssets = maxDeposit(receiver);
         if (amount > maxAssets) {
@@ -415,7 +408,7 @@ contract MagnifyWorldV3 is
     function deposit(
         uint256 assets,
         address receiver
-    ) public override returns (uint256) {
+    ) public override onlyValidDepositTime returns (uint256) {
         processOutdatedLoans();
         uint256 maxAssets = maxDeposit(receiver);
         if (assets > maxAssets) {
@@ -432,7 +425,7 @@ contract MagnifyWorldV3 is
     function mint(
         uint256 shares,
         address receiver
-    ) public override returns (uint256) {
+    ) public override onlyValidDepositTime returns (uint256) {
         processOutdatedLoans();
         uint256 maxShares = maxMint(receiver);
         if (shares > maxShares) {
@@ -458,7 +451,14 @@ contract MagnifyWorldV3 is
         }
 
         uint256 shares = previewWithdraw(assets);
-        _withdraw(_msgSender(), receiver, owner, assets, shares);
+
+        if (block.timestamp > endTimestamp) {
+            _withdraw(_msgSender(), receiver, owner, assets, shares);
+        } else if (block.timestamp < startTimestamp) {
+            _earlyWithdraw(_msgSender(), receiver, owner, assets, shares);
+        } else {
+            revert Errors.NoWithdrawWhenActive();
+        }
 
         return shares;
     }
@@ -476,9 +476,34 @@ contract MagnifyWorldV3 is
         }
 
         uint256 assets = previewRedeem(shares);
-        _withdraw(_msgSender(), receiver, owner, assets, shares);
+        if (block.timestamp > endTimestamp) {
+            _withdraw(_msgSender(), receiver, owner, assets, shares);
+        } else if (block.timestamp < startTimestamp) {
+            _earlyWithdraw(_msgSender(), receiver, owner, assets, shares);
+        } else {
+            revert Errors.NoWithdrawWhenActive();
+        }
 
         return assets;
+    }
+
+    function _earlyWithdraw(
+        address caller,
+        address receiver,
+        address owner,
+        uint256 assets,
+        uint256 shares
+    ) internal {
+        uint256 fee = assets.mulDiv(earlyExitFee, 10000);
+
+        if (caller != owner) {
+            _spendAllowance(owner, caller, shares);
+        }
+        _burn(owner, shares);
+        IERC20(asset()).safeTransfer(receiver, assets - fee);
+        IERC20(asset()).safeTransfer(treasury, fee.mulDiv(treasuryFee, 10000)); // TODO double check
+
+        emit Withdraw(caller, receiver, owner, assets - fee, shares);
     }
 
     /// @inheritdoc ERC4626Upgradeable
