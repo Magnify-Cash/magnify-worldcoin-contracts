@@ -33,7 +33,7 @@ describe("MagnifyWorldV3", function () {
 
     // Deploy V1 contract
     const MagnifyWorldV1 = await ethers.getContractFactory(
-      "contracts/MagnifyWorldV1.sol:MagnifyWorld"
+      "MagnifyWorld"
     );
     const magnifyWorldV1 = await MagnifyWorldV1.deploy(
       await mockToken.getAddress(),

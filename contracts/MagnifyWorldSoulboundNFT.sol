@@ -19,8 +19,6 @@ contract MagnifyWorldSoulboundNFT is
     mapping(uint256 => NFTData) public nftData;
     mapping(address => uint256) public userToId;
     mapping(address => bool) public admins;
-    uint256[50] __gap;
-
     modifier onlyAdmin() {
         if (!admins[msg.sender]) {
             revert Errors.CallerNotAdmin();
@@ -51,16 +49,12 @@ contract MagnifyWorldSoulboundNFT is
         nftData[_tokenId].tier = _newTier;
     }
 
-    function setOngoingLoan(
-        uint256 _tokenId
-    ) external onlyAdmin {
+    function setOngoingLoan(uint256 _tokenId) external onlyAdmin {
         checkNFTExists(_tokenId);
         nftData[_tokenId].ongoingLoan = true;
     }
 
-    function removeOngoingLoan(
-        uint256 _tokenId
-    ) external onlyAdmin {
+    function removeOngoingLoan(uint256 _tokenId) external onlyAdmin {
         checkNFTExists(_tokenId);
         nftData[_tokenId].ongoingLoan = false;
     }
@@ -112,15 +106,23 @@ contract MagnifyWorldSoulboundNFT is
         return nftData[_tokenId];
     }
 
-    function getLoanHistory(uint256 _tokenId) external view returns (Loan[] memory) {
+    function getLoanHistory(
+        uint256 _tokenId
+    ) external view returns (Loan[] memory) {
         return loanHistory[_tokenId];
     }
 
-    function getLoanHistoryData(uint256 _tokenId) external view returns (IMagnifyWorldV3.LoanData[] memory) {
-        IMagnifyWorldV3.LoanData[] memory data = new IMagnifyWorldV3.LoanData[](loanHistory[_tokenId].length);
+    function getLoanHistoryData(
+        uint256 _tokenId
+    ) external view returns (IMagnifyWorldV3.LoanData[] memory) {
+        IMagnifyWorldV3.LoanData[] memory data = new IMagnifyWorldV3.LoanData[](
+            loanHistory[_tokenId].length
+        );
         address user = _ownerOf(_tokenId);
         for (uint256 i = 0; i < loanHistory[_tokenId].length; i++) {
-            IMagnifyWorldV3 v3 = IMagnifyWorldV3(loanHistory[_tokenId][i].loanAddress); 
+            IMagnifyWorldV3 v3 = IMagnifyWorldV3(
+                loanHistory[_tokenId][i].loanAddress
+            );
             data[i] = v3.getLoan(user, loanHistory[_tokenId][i].loanIndex);
         }
         return data;
@@ -131,11 +133,11 @@ contract MagnifyWorldSoulboundNFT is
         admins[_address] = _allow;
     }
 
-    function _update(address to, uint256 tokenId, address auth)
-        internal
-        override(ERC721Upgradeable)
-        returns (address)
-    {
+    function _update(
+        address to,
+        uint256 tokenId,
+        address auth
+    ) internal override(ERC721Upgradeable) returns (address) {
         address from = _ownerOf(tokenId);
         if (from != address(0)) {
             revert Errors.SoulboundTransferNotAllowed();

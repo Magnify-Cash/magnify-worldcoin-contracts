@@ -39,7 +39,7 @@ interface IPermit2 {
  * @notice This contract allows users to mint NFTs and use them as collateral for loans
  * @custom:security-contact security@magnifyworld.com
  */
-contract MagnifyWorld is ERC721, Ownable, ReentrancyGuard {
+contract MagnifyWorldpoc is ERC721, Ownable, ReentrancyGuard {
     // State Variables
     uint256 private _tokenIds;
     IERC20 public immutable loanToken;

@@ -28,5 +28,35 @@ interface IMagnifyWorldV3 {
         uint16 interestRate;
     }
 
-    function getLoan(address, uint256) external view returns(LoanData memory);
+    function getLoan(address, uint256) external view returns (LoanData memory);
+
+    /// @notice Emitted when a loan is requested
+    /// @param loanId The unique identifier of the loan
+    /// @param amount The amount of the loan requested
+    /// @param borrower The address of the borrower
+    event LoanRequested(
+        bytes32 indexed loanId,
+        uint256 amount,
+        address indexed borrower
+    );
+
+    /// @notice Emitted when a loan is repaid
+    /// @param loanId The unique identifier of the loan
+    /// @param amount The total amount repaid (principal + interest)
+    /// @param borrower The address of the borrower
+    event LoanRepaid(
+        bytes32 indexed loanId,
+        uint256 amount,
+        address indexed borrower
+    );
+
+    /// @notice Emitted when a loan is defaulted
+    /// @param loanId The unique identifier of the loan
+    /// @param amount The amount of the loan that defaulted
+    /// @param borrower The address of the borrower
+    event LoanDefaulted(
+        bytes32 indexed loanId,
+        uint256 amount,
+        address indexed borrower
+    );
 }

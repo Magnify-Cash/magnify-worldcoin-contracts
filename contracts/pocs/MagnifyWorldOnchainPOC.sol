@@ -57,7 +57,7 @@ library ByteHasher {
  * @notice This contract allows users to mint NFTs and use them as collateral for loans
  * @custom:security-contact security@magnifyworld.com
  */
-contract MagnifyWorldV2 is ERC721, Ownable, ReentrancyGuard {
+contract MagnifyWorldV2poc is ERC721, Ownable, ReentrancyGuard {
     using ByteHasher for bytes;
 
     // World ID verification states

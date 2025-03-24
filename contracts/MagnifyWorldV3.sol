@@ -47,7 +47,8 @@ contract MagnifyWorldV3 is
 
     mapping(address => LoanData[]) public loans;
 
-    uint256[50] __gap;
+    // Events
+
 
     /// Initilize function
     /// @param _name Name of liquidity token
@@ -79,6 +80,22 @@ contract MagnifyWorldV3 is
         originationFee = 1000;
     }
 
+    function setup(
+        uint256 _startTimestamp,
+        uint256 _endTimestamp,
+        uint256 _loanAmount,
+        uint256 _loanPeriod,
+        uint16 _loanInterest,
+        uint8 _tier
+    ) external onlyOwner {
+        startTimestamp = _startTimestamp;
+        endTimestamp = _endTimestamp;
+        loanAmount = _loanAmount;
+        loanPeriod = _loanPeriod;
+        loanInterestRate = _loanInterest;
+        tier = _tier;
+    }
+
     /*//////////////////////////////////////////////////////////////
                           LOANS LOGIC
     //////////////////////////////////////////////////////////////*/
@@ -103,13 +120,9 @@ contract MagnifyWorldV3 is
         LoanData memory newLoan = LoanData(
             keccak256(abi.encode(msg.sender, userLoanHistoryLength)),
             tokenId,
-            loanAmount,
             block.timestamp,
-            loanPeriod,
             0,
             msg.sender,
-            loanInterestRate,
-            tier,
             false,
             true
         );
@@ -146,15 +159,15 @@ contract MagnifyWorldV3 is
         if (!loan.isActive) {
             revert Errors.NoLoanActive();
         }
-        if (block.timestamp <= loan.loanTimestamp + loan.duration) {
+        if (block.timestamp <= loan.loanTimestamp + loanPeriod) {
             revert Errors.LoanExpired();
         }
         IERC20 usdc = IERC20(asset());
-        uint256 interest = loan.loanAmount.mulDiv(loan.interestRate, 10000);
-        uint256 totalDue = loan.loanAmount + interest;
+        uint256 interest = loanAmount.mulDiv(loanInterestRate, 10000);
+        uint256 totalDue = loanAmount + interest;
         checkPermitDataValid(permitTransferFrom, transferDetails, totalDue);
 
-        totalLoanAmount -= loan.loanAmount;
+        totalLoanAmount -= loanAmount;
         removeActiveLoan(findActiveLoan(loan.loanID));
         loan.isActive = false;
         loan.repaymentTimestamp = block.timestamp;
@@ -192,9 +205,9 @@ contract MagnifyWorldV3 is
         IERC20 usdc = IERC20(asset());
         loan.isDefault = true;
 
-        uint256 interest = loan.loanAmount.mulDiv(loan.interestRate, 10000);
-        uint256 penalty = loan.loanAmount.mulDiv(defaultPenalty, 10000);
-        uint256 totalDue = loan.loanAmount + interest + penalty;
+        uint256 interest = loanAmount.mulDiv(loanInterestRate, 10000);
+        uint256 penalty = loanAmount.mulDiv(defaultPenalty, 10000);
+        uint256 totalDue = loanAmount + interest + penalty;
 
         checkPermitDataValid(permitTransferFrom, transferDetails, totalDue);
 
@@ -208,8 +221,8 @@ contract MagnifyWorldV3 is
             treasury,
             (interest + penalty).mulDiv(treasuryFee, 10000)
         );
-        totalDefaults -= loan.loanAmount;
-        soulboundNFT.decreaseLoanDefault(loan.tokenId, loan.loanAmount);
+        totalDefaults -= loanAmount;
+        soulboundNFT.decreaseLoanDefault(loan.tokenId, loanAmount);
 
         // emit LoanRepaid(tokenId, totalDue, msg.sender);
     }
@@ -218,7 +231,7 @@ contract MagnifyWorldV3 is
         if (activeLoans.length == 0) return;
         LoanData memory oldestLoan = activeLoans[activeLoans.length - 1];
         while (
-            oldestLoan.loanTimestamp + oldestLoan.duration < block.timestamp
+            oldestLoan.loanTimestamp + loanPeriod < block.timestamp
         ) {
             defaultLastLoan(oldestLoan);
             oldestLoan = activeLoans[activeLoans.length - 1];
@@ -247,12 +260,12 @@ contract MagnifyWorldV3 is
     }
 
     function defaultLastLoan(LoanData memory oldestLoan) internal {
-        totalLoanAmount -= oldestLoan.loanAmount;
-        totalDefaults += oldestLoan.loanAmount;
+        totalLoanAmount -= loanAmount;
+        totalDefaults += loanAmount;
 
         soulboundNFT.increaseLoanDefault(
             oldestLoan.tokenId,
-            oldestLoan.loanAmount
+            loanAmount
         );
         loans[oldestLoan.borrower][loans[oldestLoan.borrower].length - 1]
             .isDefault = true;
