@@ -5,13 +5,9 @@ interface IMagnifyWorldV3 {
     struct LoanData {
         bytes32 loanID;
         uint256 tokenId;
-        uint256 loanAmount;
         uint256 loanTimestamp;
-        uint256 duration;
         uint256 repaymentTimestamp;
         address borrower;
-        uint16 interestRate;
-        uint8 tier;
         bool isDefault;
         bool isActive;
     }
