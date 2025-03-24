@@ -85,6 +85,9 @@ contract MagnifyWorldV3 is
         uint16 _loanInterest,
         uint8 _tier
     ) external onlyOwner {
+        if (loanAmount != 0) {
+            revert Errors.AlreadySetup();
+        }
         startTimestamp = _startTimestamp;
         endTimestamp = _endTimestamp;
         loanAmount = _loanAmount;

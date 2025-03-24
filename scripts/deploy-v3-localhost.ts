@@ -14,6 +14,12 @@ const NAME = "MagnifyWorldV3";
 const SYMBOL = "MAGV3";
 const OWNER = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const TREASURY_ADDRESS = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+const startTimestamp = Math.round(Date.now() / 1000) + 60;
+const endTimestamp = startTimestamp + 60 * 60 * 24 * 30; // 30 days
+const loanAmount = ethers.parseUnits("10", 6); // 10 USDC
+const loanDuration = 60 * 60 * 24 * 7; // 7 days
+const loanInterest = 1000; // 10%
+const tier = 3;
 
 // https://docs.openzeppelin.com/contracts/2.x/api/token/erc20#IERC20
 // https://docs.openzeppelin.com/contracts/4.x/api/token/erc20#ERC4626
@@ -53,10 +59,18 @@ async function deploy() {
     await mockToken.getAddress(),
     await mockPermit2.getAddress(),
     await magnifyWorldSoulboundNFT.getAddress(),
-    await magnifyWorldV1.getAddress(),
     TREASURY_ADDRESS,
   ]);
   await magnifyWorldV3.waitForDeployment();
+
+  await magnifyWorldV3.setup(
+    startTimestamp,
+    endTimestamp,
+    loanAmount,
+    loanDuration,
+    loanInterest,
+    tier
+  );
 
   console.log("MockToken deployed to:", await mockToken.getAddress());
   console.log("MockPermit2 deployed to:", await mockPermit2.getAddress());

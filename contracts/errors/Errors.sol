@@ -38,5 +38,6 @@ library Errors {
     error OutOfBoundsArray();
     error CallerNotAdmin();
     error InputZero();
+    error AlreadySetup();
 
 }
