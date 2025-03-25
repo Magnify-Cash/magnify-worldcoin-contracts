@@ -35,7 +35,7 @@ contract MagnifyWorldSoulboundNFT is
         admins[msg.sender] = true;
     }
 
-    function mintNFT(address _to, uint8 _tier) public onlyAdmin {
+    function mintNFT(address _to, uint8 _tier) external onlyAdmin {
         if (userToId[_to] != 0) {
             revert Errors.AlreadyOwnedNFT();
         }
@@ -44,7 +44,7 @@ contract MagnifyWorldSoulboundNFT is
         nftData[tokenCount] = NFTData(0, 0, 0, _to, _tier, false);
     }
 
-    function upgradeTier(uint256 _tokenId, uint8 _newTier) public onlyAdmin {
+    function upgradeTier(uint256 _tokenId, uint8 _newTier) external onlyAdmin {
         checkNFTExists(_tokenId);
         nftData[_tokenId].tier = _newTier;
     }

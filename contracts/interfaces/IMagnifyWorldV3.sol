@@ -54,6 +54,14 @@ interface IMagnifyWorldV3 {
 
     function getTotalDefaults() external view returns (uint256);
 
+    function isActive() external view returns (bool);
+
+    function isExpired() external view returns (bool);
+
+    function isWarmup() external view returns (bool);
+
+    function isCooldown() external view returns (bool);
+
     /// @notice Emitted when a loan is requested
     /// @param loanId The unique identifier of the loan
     /// @param borrower The address of the borrower
@@ -79,6 +87,16 @@ interface IMagnifyWorldV3 {
     /// @param borrower The address of the borrower
     /// @param index The index of the loan in the users list
     event LoanDefaulted(
+        bytes32 indexed loanId,
+        address indexed borrower,
+        uint256 index
+    );
+
+    /// @notice Emitted when a loan is defaulted
+    /// @param loanId The unique identifier of the loan
+    /// @param borrower The address of the borrower
+    /// @param index The index of the loan in the users list
+    event LoanDefaultRepaid(
         bytes32 indexed loanId,
         address indexed borrower,
         uint256 index

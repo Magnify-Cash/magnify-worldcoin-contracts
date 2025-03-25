@@ -32,6 +32,14 @@ interface IMagnifyWorldSoulboundNFT {
         uint256 loanIndex;
     }
 
+    function mintNFT(address _to, uint8 _tier) external;
+
+    function upgradeTier(uint256 _tokenId, uint8 _newTier) external;
+
+    function setOngoingLoan(uint256 _tokenId) external;
+
+    function removeOngoingLoan(uint256 _tokenId) external;
+
     function increaseloanRepayment(
         uint256 _tokenId,
         uint256 _interestPaid
@@ -43,9 +51,9 @@ interface IMagnifyWorldSoulboundNFT {
 
     function userToId(address _user) external view returns (uint256);
 
-    function mintNFT(address _to, uint8 _tier) external;
-
-    function getNFTData(uint256 _tokenId) external view returns (NFTData memory);
+    function getNFTData(
+        uint256 _tokenId
+    ) external view returns (NFTData memory);
 
     function addNewLoan(uint256 _tokenId, uint256 _index) external;
 }

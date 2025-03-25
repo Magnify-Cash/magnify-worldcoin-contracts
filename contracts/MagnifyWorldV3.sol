@@ -145,8 +145,7 @@ contract MagnifyWorldV3 is
             loanOriginationFee.mulDiv(treasuryFee, 10000)
         );
 
-        // emit LoanRequested(tokenId, loanAmount, msg.sender);
-        return;
+        emit LoanRepaid(newLoan.loanID, msg.sender, userLoanHistoryLength);
     }
 
     /**
@@ -159,7 +158,8 @@ contract MagnifyWorldV3 is
         ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
         bytes calldata signature
     ) external nonReentrant {
-        LoanData memory loan = loans[msg.sender][loans[msg.sender].length - 1];
+        uint256 loanIndex = loans[msg.sender].length - 1;
+        LoanData memory loan = loans[msg.sender][loanIndex];
         if (!loan.isActive) {
             revert Errors.NoLoanActive();
         }
@@ -175,7 +175,7 @@ contract MagnifyWorldV3 is
         removeActiveLoan(findActiveLoan(loan.loanID));
         loan.isActive = false;
         loan.repaymentTimestamp = block.timestamp;
-        loans[msg.sender][loans[msg.sender].length - 1] = loan;
+        loans[msg.sender][loanIndex] = loan;
         permit2.permitTransferFrom(
             permitTransferFrom,
             transferDetails,
@@ -187,7 +187,8 @@ contract MagnifyWorldV3 is
 
         // set soulbound info
         soulboundNFT.increaseloanRepayment(loan.tokenId, interest);
-        // emit LoanRepaid(tokenId, totalDue, msg.sender);
+
+        emit LoanRepaid(loan.loanID, loan.borrower, loanIndex);
     }
 
     /**
@@ -228,7 +229,7 @@ contract MagnifyWorldV3 is
         totalDefaults -= loanAmount;
         soulboundNFT.decreaseLoanDefault(loan.tokenId, loanAmount);
 
-        // emit LoanRepaid(tokenId, totalDue, msg.sender);
+        emit LoanDefaultRepaid(loan.loanID, loan.borrower, _index);
     }
 
     function processOutdatedLoans() public nonReentrant {
@@ -236,9 +237,10 @@ contract MagnifyWorldV3 is
         LoanData memory oldestLoan = activeLoans[activeLoans.length - 1];
         while (oldestLoan.loanTimestamp + loanPeriod < block.timestamp) {
             defaultLastLoan(oldestLoan);
+            activeLoans.pop();
+            if (activeLoans.length == 0) return;
             oldestLoan = activeLoans[activeLoans.length - 1];
         }
-        return;
     }
 
     // internal
@@ -262,15 +264,16 @@ contract MagnifyWorldV3 is
     }
 
     function defaultLastLoan(LoanData memory oldestLoan) internal {
+        uint256 loanIndex = loans[oldestLoan.borrower].length - 1;
         totalLoanAmount -= loanAmount;
         totalDefaults += loanAmount;
 
         soulboundNFT.increaseLoanDefault(oldestLoan.tokenId, loanAmount);
-        loans[oldestLoan.borrower][loans[oldestLoan.borrower].length - 1]
-            .isDefault = true;
-        loans[oldestLoan.borrower][loans[oldestLoan.borrower].length - 1]
-            .isActive = false;
-        activeLoans.pop();
+        soulboundNFT.removeOngoingLoan(oldestLoan.tokenId);
+        loans[oldestLoan.borrower][loanIndex].isDefault = true;
+        loans[oldestLoan.borrower][loanIndex].isActive = false;
+
+        emit LoanDefaulted(oldestLoan.loanID, oldestLoan.borrower, loanIndex);
     }
 
     function findActiveLoan(bytes32 id) internal view returns (uint256 index) {
@@ -371,6 +374,24 @@ contract MagnifyWorldV3 is
             revert Errors.PoolNotActive();
         }
         _;
+    }
+
+    function isActive() public view returns (bool) {
+        return (block.timestamp >= startTimestamp &&
+            block.timestamp < endTimestamp);
+    }
+
+    function isExpired() public view returns (bool) {
+        return (block.timestamp >= endTimestamp);
+    }
+
+    function isWarmup() public view returns (bool) {
+        return (block.timestamp < startTimestamp);
+    }
+
+    function isCooldown() public view returns (bool) {
+        return (block.timestamp >= endTimestamp - loanPeriod &&
+            block.timestamp < endTimestamp);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -562,8 +583,7 @@ contract MagnifyWorldV3 is
 
     function setLoanInterestRate(uint16 _loanInterestRate) external onlyOwner {
         if (_loanInterestRate > 10000) revert Errors.InvalidPercentage();
-        if (block.timestamp >= startTimestamp && block.timestamp < endTimestamp)
-            revert Errors.PoolActive();
+        if (isActive()) revert Errors.PoolActive();
 
         loanInterestRate = _loanInterestRate;
     }
