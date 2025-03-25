@@ -9,7 +9,6 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Errors} from "./errors/Errors.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IMagnifyWorldV1} from "./interfaces/IMagnifyWorldV1.sol";
 import {IMagnifyWorldV3} from "./interfaces/IMagnifyWorldV3.sol";
 import {IMagnifyWorldSoulboundNFT} from "./interfaces/IMagnifyWorldSoulboundNFT.sol";
 import {IPermit2} from "./interfaces/IPermit2.sol";
@@ -29,10 +28,9 @@ contract MagnifyWorldV3 is
     using SafeERC20 for IERC20;
 
     IMagnifyWorldSoulboundNFT public soulboundNFT;
-    IMagnifyWorldV1 public v1;
     IPermit2 public permit2;
-    uint256 public totalLoanAmount;
-    uint256 public totalDefaults;
+    uint256 internal totalLoanAmount;
+    uint256 internal totalDefaults;
     uint256 public loanAmount;
     uint256 public loanPeriod;
     uint256 public startTimestamp;
@@ -45,10 +43,7 @@ contract MagnifyWorldV3 is
     uint16 public earlyExitFee;
     uint8 public tier;
     LoanData[] public activeLoans;
-
     mapping(address => LoanData[]) public loans;
-
-    // Events
 
     /// Initilize function
     /// @param _name Name of liquidity token
@@ -75,6 +70,7 @@ contract MagnifyWorldV3 is
         treasuryFee = 2000;
         defaultPenalty = 1000;
         originationFee = 1000;
+        earlyExitFee = 100;
     }
 
     function setup(
@@ -85,9 +81,12 @@ contract MagnifyWorldV3 is
         uint16 _loanInterest,
         uint8 _tier
     ) external onlyOwner {
-        if (loanAmount != 0) {
-            revert Errors.AlreadySetup();
-        }
+        if (loanAmount != 0) revert Errors.AlreadySetup();
+        if (_startTimestamp < block.timestamp) revert Errors.InvalidStartTime();
+        if (_endTimestamp <= _startTimestamp) revert Errors.InvalidEndTime();
+        if (_loanAmount == 0) revert Errors.InputZero();
+        if (_loanPeriod == 0) revert Errors.InputZero();
+        if (_loanInterest > 10000) revert Errors.InvalidPercentage();
         startTimestamp = _startTimestamp;
         endTimestamp = _endTimestamp;
         loanAmount = _loanAmount;
@@ -504,7 +503,7 @@ contract MagnifyWorldV3 is
         }
         _burn(owner, shares);
         IERC20(asset()).safeTransfer(receiver, assets - fee);
-        IERC20(asset()).safeTransfer(treasury, fee.mulDiv(treasuryFee, 10000)); // TODO double check
+        IERC20(asset()).safeTransfer(treasury, fee);
 
         emit Withdraw(caller, receiver, owner, assets - fee, shares);
     }
@@ -512,5 +511,74 @@ contract MagnifyWorldV3 is
     /// @inheritdoc ERC4626Upgradeable
     function totalAssets() public view override returns (uint256) {
         return IERC20(asset()).balanceOf(address(this)) + totalLoanAmount;
+    }
+
+    function getTotalBorrows() external view returns (uint256) {
+        return totalLoanAmount;
+    }
+
+    function getTotalDefaults() external view returns (uint256) {
+        return totalDefaults;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                          Owner setters
+    //////////////////////////////////////////////////////////////*/
+
+    function setLoanAmount(uint256 _loanAmount) external onlyOwner {
+        if (_loanAmount == 0) revert Errors.InputZero();
+        loanAmount = _loanAmount;
+    }
+
+    function setLoanPeriod(uint256 _loanPeriod) external onlyOwner {
+        if (_loanPeriod == 0) revert Errors.InputZero();
+        loanPeriod = _loanPeriod;
+    }
+
+    function setStartTimestamp(uint256 _startTimestamp) external onlyOwner {
+        if (_startTimestamp < block.timestamp) revert Errors.InvalidStartTime();
+        startTimestamp = _startTimestamp;
+    }
+
+    function setEndTimestamp(uint256 _endTimestamp) external onlyOwner {
+        if (_endTimestamp <= startTimestamp) revert Errors.InvalidEndTime();
+        endTimestamp = _endTimestamp;
+    }
+
+    function setTreasury(address _treasury) external onlyOwner {
+        if (_treasury == address(0)) revert Errors.InputZero();
+        treasury = _treasury;
+    }
+
+    function setTreasuryFee(uint16 _treasuryFee) external onlyOwner {
+        if (_treasuryFee > 10000) revert Errors.InvalidPercentage();
+        treasuryFee = _treasuryFee;
+    }
+
+    function setOriginationFee(uint16 _originationFee) external onlyOwner {
+        if (_originationFee > 10000) revert Errors.InvalidPercentage();
+        originationFee = _originationFee;
+    }
+
+    function setLoanInterestRate(uint16 _loanInterestRate) external onlyOwner {
+        if (_loanInterestRate > 10000) revert Errors.InvalidPercentage();
+        if (block.timestamp >= startTimestamp && block.timestamp < endTimestamp)
+            revert Errors.PoolActive();
+
+        loanInterestRate = _loanInterestRate;
+    }
+
+    function setDefaultPenalty(uint16 _defaultPenalty) external onlyOwner {
+        if (_defaultPenalty > 10000) revert Errors.InvalidPercentage();
+        defaultPenalty = _defaultPenalty;
+    }
+
+    function setEarlyExitFee(uint16 _earlyExitFee) external onlyOwner {
+        if (_earlyExitFee > 10000) revert Errors.InvalidPercentage();
+        earlyExitFee = _earlyExitFee;
+    }
+
+    function setTier(uint8 _tier) external onlyOwner {
+        tier = _tier;
     }
 }

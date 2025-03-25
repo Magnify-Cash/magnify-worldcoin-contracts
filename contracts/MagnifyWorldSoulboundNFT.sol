@@ -128,6 +128,22 @@ contract MagnifyWorldSoulboundNFT is
         return data;
     }
 
+    function getTotalBorrowed() external view returns (uint256) {
+        uint256 totalBorrowed;
+        for (uint256 i = 0; i < magnifyPools.length; i++) {
+            totalBorrowed += magnifyPools[i].getTotalBorrows();
+        }
+        return totalBorrowed;
+    }
+
+    function getTotalDefaults() external view returns (uint256) {
+        uint256 totalDefaults;
+        for (uint256 i = 0; i < magnifyPools.length; i++) {
+            totalDefaults += magnifyPools[i].getTotalDefaults();
+        }
+        return totalDefaults;
+    }
+
     // Set multiple admin wallets
     function setAdmin(address _address, bool _allow) external onlyOwner {
         admins[_address] = _allow;

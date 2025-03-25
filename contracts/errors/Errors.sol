@@ -25,8 +25,10 @@ library Errors {
 
     // Pool Period Errors
     error PoolNotActive();
+    error PoolActive();
     error NoWithdrawWhenActive();
-
+    error InvalidStartTime();
+    error InvalidEndTime();
 
     // NFT Errors
     error NoMagnifyNFT();
@@ -39,5 +41,6 @@ library Errors {
     error CallerNotAdmin();
     error InputZero();
     error AlreadySetup();
+    error InvalidPercentage();
 
 }

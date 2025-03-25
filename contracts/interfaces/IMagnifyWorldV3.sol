@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
+import {ISignatureTransfer} from "./ISignatureTransfer.sol";
 
 interface IMagnifyWorldV3 {
     struct LoanData {
@@ -12,47 +13,74 @@ interface IMagnifyWorldV3 {
         bool isActive;
     }
 
-    /**
-     * @dev Tier structure defining loan parameters for each tier
-     * @param loanAmount The amount that can be borrowed in this tier
-     * @param interestRate Interest rate in basis points (1/100th of a percent)
-     * @param loanPeriod Duration of the loan in seconds
-     */
-    struct Tier {
-        uint256 loanAmount;
-        uint256 loanPeriod;
-        uint16 interestRate;
-    }
+    function requestLoan() external;
 
-    function getLoan(address, uint256) external view returns (LoanData memory);
+    function repayLoanWithPermit2(
+        ISignatureTransfer.PermitTransferFrom calldata permitTransferFrom,
+        ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
+        bytes calldata signature
+    ) external;
+
+    function repayDefaultedLoanWithPermit2(
+        uint256 _index,
+        ISignatureTransfer.PermitTransferFrom calldata permitTransferFrom,
+        ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
+        bytes calldata signature
+    ) external;
+
+    function processOutdatedLoans() external;
+
+    function hasActiveLoan(address _user) external view returns (bool);
+
+    function getActiveLoan(
+        address _user
+    ) external view returns (LoanData memory loan);
+
+    function getLoan(
+        address _user,
+        uint256 _index
+    ) external view returns (LoanData memory loan);
+
+    function getLoanHistory(
+        address _user
+    ) external view returns (LoanData[] memory loanHistory);
+
+    function getAllActiveLoans()
+        external
+        view
+        returns (LoanData[] memory allActiveLoans);
+
+    function getTotalBorrows() external view returns (uint256);
+
+    function getTotalDefaults() external view returns (uint256);
 
     /// @notice Emitted when a loan is requested
     /// @param loanId The unique identifier of the loan
-    /// @param amount The amount of the loan requested
     /// @param borrower The address of the borrower
+    /// @param index The index of the loan in the users list
     event LoanRequested(
         bytes32 indexed loanId,
-        uint256 amount,
-        address indexed borrower
+        address indexed borrower,
+        uint256 index
     );
 
     /// @notice Emitted when a loan is repaid
     /// @param loanId The unique identifier of the loan
-    /// @param amount The total amount repaid (principal + interest)
     /// @param borrower The address of the borrower
+    /// @param index The index of the loan in the users list
     event LoanRepaid(
         bytes32 indexed loanId,
-        uint256 amount,
-        address indexed borrower
+        address indexed borrower,
+        uint256 index
     );
 
     /// @notice Emitted when a loan is defaulted
     /// @param loanId The unique identifier of the loan
-    /// @param amount The amount of the loan that defaulted
     /// @param borrower The address of the borrower
+    /// @param index The index of the loan in the users list
     event LoanDefaulted(
         bytes32 indexed loanId,
-        uint256 amount,
-        address indexed borrower
+        address indexed borrower,
+        uint256 index
     );
 }
