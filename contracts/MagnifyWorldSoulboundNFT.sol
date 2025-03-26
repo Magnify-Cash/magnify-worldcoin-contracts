@@ -40,12 +40,11 @@ contract MagnifyWorldSoulboundNFT is
     }
 
     function mintNFT(address _to, uint8 _tier) external onlyAdmin {
-        if (userToId[_to] != 0) {
-            revert Errors.AlreadyOwnedNFT();
-        }
+        if (balanceOf(_to) > 0) revert Errors.AlreadyOwnedNFT();
         tokenCount++;
         _safeMint(_to, tokenCount);
         nftData[tokenCount] = NFTData(0, 0, 0, _to, _tier, false);
+        userToId[_to] = tokenCount;
     }
 
     function upgradeTier(uint256 _tokenId, uint8 _newTier) external onlyAdmin {
@@ -129,6 +128,10 @@ contract MagnifyWorldSoulboundNFT is
             data[i] = v3.getLoan(user, loanHistory[_tokenId][i].loanIndex);
         }
         return data;
+    }
+
+    function getMagnifyPools() external view returns (IMagnifyWorldV3[] memory) {
+        return magnifyPools;
     }
 
     function getTotalBorrowed() external view returns (uint256) {

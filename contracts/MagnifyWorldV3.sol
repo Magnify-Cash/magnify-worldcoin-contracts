@@ -137,7 +137,7 @@ contract MagnifyWorldV3 is
         totalLoanAmount += loanAmount;
         soulboundNFT.addNewLoan(tokenId, userLoanHistoryLength);
 
-        uint256 loanOriginationFee = loanAmount * originationFee;
+        uint256 loanOriginationFee = loanAmount.mulDiv(originationFee, 10000);
 
         usdc.safeTransfer(msg.sender, loanAmount - loanOriginationFee);
         usdc.safeTransfer(
@@ -145,7 +145,7 @@ contract MagnifyWorldV3 is
             loanOriginationFee.mulDiv(treasuryFee, 10000)
         );
 
-        emit LoanRepaid(newLoan.loanID, msg.sender, userLoanHistoryLength);
+        emit LoanRequested(newLoan.loanID, msg.sender, userLoanHistoryLength);
     }
 
     /**
@@ -163,7 +163,7 @@ contract MagnifyWorldV3 is
         if (!loan.isActive) {
             revert Errors.NoLoanActive();
         }
-        if (block.timestamp <= loan.loanTimestamp + loanPeriod) {
+        if (block.timestamp > loan.loanTimestamp + loanPeriod) {
             revert Errors.LoanExpired();
         }
         IERC20 usdc = IERC20(asset());
@@ -282,7 +282,7 @@ contract MagnifyWorldV3 is
     }
 
     function findActiveLoan(bytes32 id) internal view returns (uint256 index) {
-        for (uint256 i = 0; i < activeLoans.length - 1; i++) {
+        for (uint256 i = 0; i < activeLoans.length; i++) {
             if (activeLoans[i].loanID == id) {
                 return i;
             }

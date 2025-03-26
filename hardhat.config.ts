@@ -43,7 +43,7 @@ const config: HardhatUserConfig = {
   },
   etherscan: {
     apiKey: {
-      worldchainSepolia: "NNWYYC7T81E1CAWHZ6WG22MYM2988BR6X3",
+      worldchainSepolia: process.env.WORLD_SCAN_KEY || "",
       worldchain: process.env.WORLD_SCAN_KEY || "",
     },
     customChains: [

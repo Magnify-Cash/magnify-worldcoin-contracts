@@ -63,6 +63,8 @@ describe("MagnifyWorldV3", function () {
       tier
     );
 
+    await magnifyWorldSoulboundNFT.addMagnifyPool(await magnifyWorldV3.getAddress());
+
     // Mint tokens to both contracts for loans
     const mintAmount = ethers.parseUnits("1000", 6); // Assuming 6 decimals
     await mockToken.mint(await owner.getAddress(), mintAmount);
@@ -200,7 +202,7 @@ describe("MagnifyWorldV3", function () {
           await loadFixture(deployMagnifyWorldV3Fixture);
 
         const depositAmount = ethers.parseUnits("100", 6);
-
+        await mockToken.connect(user1).approve(mockPermit2, depositAmount);
         // Create mock permit data
         const permitTransferFrom = {
           permitted: {
@@ -310,6 +312,7 @@ describe("MagnifyWorldV3", function () {
         // Move time past loan period
         await time.increaseTo(startTimestamp + loanDuration + 1);
 
+        await mockToken.approve(mockPermit2, totalDue);
         // Create permit data
         const permitTransferFrom = {
           permitted: {
@@ -326,7 +329,6 @@ describe("MagnifyWorldV3", function () {
         };
 
         const signature = "0x"; // Mock signature
-
         await expect(
           magnifyWorldV3
             .connect(owner)
@@ -416,7 +418,7 @@ describe("MagnifyWorldV3", function () {
 
     describe("Repay Defaulted Loan", function () {
       it("Should allow repayment of defaulted loan with permit2", async function () {
-        const { magnifyWorldV3, mockToken, owner } = await loadFixture(
+        const { magnifyWorldV3, mockToken, mockPermit2, owner } = await loadFixture(
           deployMagnifyWorldV3Fixture
         );
 
@@ -439,6 +441,9 @@ describe("MagnifyWorldV3", function () {
         const penalty = (loanAmount * BigInt(1000)) / BigInt(10000); // 10% penalty
         const totalDue = loanAmount + interest + penalty;
 
+        await mockToken
+        .connect(owner)
+        .approve(mockPermit2, totalDue);
         // Create permit data
         const permitTransferFrom = {
           permitted: {
