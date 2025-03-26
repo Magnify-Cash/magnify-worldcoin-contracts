@@ -49,17 +49,18 @@ contract MagnifyWorldSoulboundNFT is
     }
 
     function upgradeTier(uint256 _tokenId, uint8 _newTier) external onlyAdmin {
-        checkNFTExists(_tokenId);
+        _requireOwned(_tokenId);
         nftData[_tokenId].tier = _newTier;
     }
 
     function setOngoingLoan(uint256 _tokenId) external onlyAdmin {
-        checkNFTExists(_tokenId);
+                _requireOwned(_tokenId);
+
         nftData[_tokenId].ongoingLoan = true;
     }
 
     function removeOngoingLoan(uint256 _tokenId) external onlyAdmin {
-        checkNFTExists(_tokenId);
+        _requireOwned(_tokenId);
         nftData[_tokenId].ongoingLoan = false;
     }
 
@@ -67,7 +68,7 @@ contract MagnifyWorldSoulboundNFT is
         uint256 _tokenId,
         uint256 _interestPaid
     ) external onlyAdmin {
-        checkNFTExists(_tokenId);
+        _requireOwned(_tokenId);
         nftData[_tokenId].loansRepaid++;
         nftData[_tokenId].interestPaid += _interestPaid;
     }
@@ -76,7 +77,7 @@ contract MagnifyWorldSoulboundNFT is
         uint256 _tokenId,
         uint256 _amount
     ) external onlyAdmin {
-        checkNFTExists(_tokenId);
+        _requireOwned(_tokenId);
         nftData[_tokenId].loansDefaulted += _amount;
     }
 
@@ -84,12 +85,12 @@ contract MagnifyWorldSoulboundNFT is
         uint256 _tokenId,
         uint256 _amount
     ) external onlyAdmin {
-        checkNFTExists(_tokenId);
+        _requireOwned(_tokenId);
         nftData[_tokenId].loansDefaulted -= _amount;
     }
 
     function addNewLoan(uint256 _tokenId, uint256 _index) external onlyAdmin {
-        checkNFTExists(_tokenId);
+        _requireOwned(_tokenId);
         nftData[_tokenId].ongoingLoan = true;
         loanHistory[_tokenId].push(Loan(msg.sender, _index));
     }
@@ -98,31 +99,29 @@ contract MagnifyWorldSoulboundNFT is
         baseURI = _newBaseURI;
     }
 
-    function checkNFTExists(uint256 _tokenId) internal view {
-        if (nftData[_tokenId].owner == address(0)) {
-            revert Errors.TokenIdInvalid(_tokenId);
-        }
-    }
-
     function getNFTData(
         uint256 _tokenId
     ) external view returns (NFTData memory) {
+        _requireOwned(_tokenId);
         return nftData[_tokenId];
     }
 
     function getLoanHistory(
         uint256 _tokenId
     ) external view returns (Loan[] memory) {
+        _requireOwned(_tokenId);
         return loanHistory[_tokenId];
     }
 
     function getLoanHistoryData(
         uint256 _tokenId
     ) external view returns (IMagnifyWorldV3.LoanData[] memory) {
+        address user = _requireOwned(_tokenId);
+
+        // initialize array
         IMagnifyWorldV3.LoanData[] memory data = new IMagnifyWorldV3.LoanData[](
             loanHistory[_tokenId].length
         );
-        address user = _ownerOf(_tokenId);
         for (uint256 i = 0; i < loanHistory[_tokenId].length; i++) {
             IMagnifyWorldV3 v3 = IMagnifyWorldV3(
                 loanHistory[_tokenId][i].loanAddress
