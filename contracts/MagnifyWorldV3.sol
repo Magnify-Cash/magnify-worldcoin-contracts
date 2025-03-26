@@ -222,10 +222,15 @@ contract MagnifyWorldV3 is
             msg.sender,
             signature
         );
-        usdc.safeTransfer(
-            treasury,
-            (interest + penalty).mulDiv(treasuryFee, 10000)
-        );
+
+        if (isExpired()) {
+            usdc.safeTransfer(treasury, totalDue);
+        } else {
+            usdc.safeTransfer(
+                treasury,
+                (interest + penalty).mulDiv(treasuryFee, 10000)
+            );
+        }
         totalDefaults -= loanAmount;
         soulboundNFT.decreaseLoanDefault(loan.tokenId, loanAmount);
 
