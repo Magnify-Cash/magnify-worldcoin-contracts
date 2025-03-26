@@ -23,6 +23,8 @@ const loanDuration = 60 * 60 * 24 * 7; // 7 days
 const loanInterest = 1000; // 10%
 const tier = 3;
 
+const mockTokenSepolia = "0x0E7f379818a37E88BaE7D937B5c1daC92971B5Ff";
+const mockPermit2Sepolia = "0x6e97FC9069661F7c578AF79e562AB9583cA56BFF";
 // https://docs.openzeppelin.com/contracts/2.x/api/token/erc20#IERC20
 // https://docs.openzeppelin.com/contracts/4.x/api/token/erc20#ERC4626
 
@@ -76,6 +78,63 @@ async function deploy() {
   )).wait();
 
   console.log("Setup completed");
+
+  await(await magnifyWorldSoulboundNFT.addMagnifyPool(await magnifyWorldV3.getAddress())).wait();
+
+  return {
+    magnifyWorldV3,
+    magnifyWorldSoulboundNFT,
+    mockToken,
+    mockPermit2,
+  };
+}
+
+async function reDeploy() {
+  const mockToken = await ethers.getContractAt("MockERC20", mockTokenSepolia);
+  const mockPermit2 = await ethers.getContractAt("MockPermit2", mockPermit2Sepolia);
+
+  // Deploy MagnifyWorldSoulboundNFT contract
+  const MagnifyWorldSoulboundNFT = await ethers.getContractFactory(
+    "MagnifyWorldSoulboundNFT"
+  );
+  const magnifyWorldSoulboundNFT = await upgrades.deployProxy(
+    MagnifyWorldSoulboundNFT,
+    [NFT_NAME, NFT_SYMBOL]
+  );
+  await magnifyWorldSoulboundNFT.waitForDeployment();
+
+  console.log(
+    "MagnifyWorld SoulboundNFT deployed to:",
+    await magnifyWorldSoulboundNFT.getAddress()
+  );
+  // Deploy V3 contract
+  const MagnifyWorldV3 = await ethers.getContractFactory("MagnifyWorldV3");
+  const magnifyWorldV3 = await upgrades.deployProxy(MagnifyWorldV3, [
+    NAME,
+    SYMBOL,
+    await mockToken.getAddress(),
+    await mockPermit2.getAddress(),
+    await magnifyWorldSoulboundNFT.getAddress(),
+    TREASURY_ADDRESS,
+  ]);
+  await magnifyWorldV3.waitForDeployment();
+  console.log("MagnifyWorldV3 deployed to:", await magnifyWorldV3.getAddress());
+
+  await (await magnifyWorldV3.setup(
+    startTimestamp,
+    endTimestamp,
+    loanAmount,
+    loanDuration,
+    loanInterest,
+    tier
+  )).wait();
+
+  console.log("Setup completed");
+
+  await(await magnifyWorldSoulboundNFT.addMagnifyPool(await magnifyWorldV3.getAddress())).wait();
+
+  console.log("MagnifyWorldV3 added to soulboundNFT");
+
   return {
     magnifyWorldV3,
     magnifyWorldSoulboundNFT,
@@ -119,7 +178,7 @@ async function main() {
     magnifyWorldSoulboundNFT,
     mockToken,
     mockPermit2,
-  } = await deploy();
+  } = await reDeploy();
 
   await setup(
     magnifyWorldV3,
