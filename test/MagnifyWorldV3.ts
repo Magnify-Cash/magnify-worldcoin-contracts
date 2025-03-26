@@ -11,9 +11,13 @@ const NFT_NAME = "Magnify World Soulbound NFT";
 const NFT_SYMBOL = "MAGNFT";
 const NAME = "MagnifyWorldV3";
 const SYMBOL = "MAGV3";
-const OWNER = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
-const TREASURY_ADDRESS = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 const SECONDS_PER_DAY = 60 * 60 * 24;
+const startTimestamp = Math.round(Date.now() / 1000) + SECONDS_PER_DAY;
+const endTimestamp = startTimestamp + SECONDS_PER_DAY * 30; // 30 days
+const loanAmount = ethers.parseUnits("10", 6); // 10 USDC
+const loanDuration = SECONDS_PER_DAY * 7; // 7 days
+const loanInterest = 1000; // 10%
+const tier = 3;
 
 // https://docs.openzeppelin.com/contracts/2.x/api/token/erc20#IERC20
 // https://docs.openzeppelin.com/contracts/4.x/api/token/erc20#ERC4626
@@ -21,7 +25,7 @@ describe("MagnifyWorldV3", function () {
   // Fixture to deploy all contracts and set up initial state
   async function deployMagnifyWorldV3Fixture() {
     // Get signers
-    const [owner, user1, user2] = await ethers.getSigners();
+    const [owner, user1, treasury, ...users] = await ethers.getSigners();
 
     // Deploy mock ERC20 token
     const MockToken = await ethers.getContractFactory("MockERC20");
@@ -30,15 +34,6 @@ describe("MagnifyWorldV3", function () {
     // Deploy mock Permit2
     const MockPermit2 = await ethers.getContractFactory("MockPermit2");
     const mockPermit2 = await MockPermit2.deploy();
-
-    // Deploy V1 contract
-    const MagnifyWorldV1 = await ethers.getContractFactory(
-      "MagnifyWorld"
-    );
-    const magnifyWorldV1 = await MagnifyWorldV1.deploy(
-      await mockToken.getAddress(),
-      await mockPermit2.getAddress()
-    );
 
     // Deploy MagnifyWorldSoulboundNFT contract
     const MagnifyWorldSoulboundNFT = await ethers.getContractFactory(
@@ -57,234 +52,418 @@ describe("MagnifyWorldV3", function () {
       await mockToken.getAddress(),
       await mockPermit2.getAddress(),
       await magnifyWorldSoulboundNFT.getAddress(),
-      await magnifyWorldV1.getAddress(),
-      await (user1.getAddress()),
+      await treasury.getAddress(),
     ]);
+
+    await magnifyWorldV3.setup(
+      startTimestamp,
+      endTimestamp,
+      loanAmount,
+      loanDuration,
+      loanInterest,
+      tier
+    );
 
     // Mint tokens to both contracts for loans
     const mintAmount = ethers.parseUnits("1000", 6); // Assuming 6 decimals
-    await mockToken.mint(await magnifyWorldV1.getAddress(), mintAmount);
-    await mockToken.mint(await magnifyWorldV3.getAddress(), mintAmount);
+    await mockToken.mint(await owner.getAddress(), mintAmount);
+    await mockToken.mint(await user1.getAddress(), mintAmount);
+    await magnifyWorldSoulboundNFT.mintNFT(await owner.getAddress(), tier);
+    await magnifyWorldSoulboundNFT.mintNFT(await user1.getAddress(), tier - 1);
 
-
-    await magnifyWorldV3.addTier(3, ethers.parseUnits("10", 6), 30 * SECONDS_PER_DAY, 200);
     return {
-      magnifyWorldV1,
       magnifyWorldV3,
+      magnifyWorldSoulboundNFT,
       mockToken,
       mockPermit2,
       owner,
       user1,
-      user2,
+      treasury,
+      users,
     };
   }
 
-  describe("Deployment", function () {
-    it("Should correctly initialize with V1 contract address", async function () {
-      const { magnifyWorldV3, magnifyWorldV1 } = await loadFixture(
-        deployMagnifyWorldV3Fixture
-      );
-      expect(await magnifyWorldV3.v1()).to.equal(
-        await magnifyWorldV1.getAddress()
-      );
+  describe("Vault Operations", function () {
+    describe("Deposits", function () {
+      it("Should allow deposits and mint correct shares", async function () {
+        const { magnifyWorldV3, mockToken, user1 } = await loadFixture(
+          deployMagnifyWorldV3Fixture
+        );
+
+        const depositAmount = ethers.parseUnits("100", 6);
+
+        // Approve tokens
+        await mockToken.connect(user1).approve(magnifyWorldV3, depositAmount);
+
+        // Initial deposit should mint equal shares (1:1)
+        await expect(
+          magnifyWorldV3.connect(user1).deposit(depositAmount, user1)
+        )
+          .to.emit(magnifyWorldV3, "Deposit")
+          .withArgs(user1.address, user1.address, depositAmount, depositAmount);
+
+        expect(await magnifyWorldV3.balanceOf(user1)).to.equal(depositAmount);
+      });
+
+      it("Should allow minting shares directly", async function () {
+        const { magnifyWorldV3, mockToken, user1 } = await loadFixture(
+          deployMagnifyWorldV3Fixture
+        );
+
+        const shareAmount = ethers.parseUnits("100", 6);
+
+        // Approve tokens
+        await mockToken.connect(user1).approve(magnifyWorldV3, shareAmount);
+
+        // Mint shares directly
+        await expect(magnifyWorldV3.connect(user1).mint(shareAmount, user1))
+          .to.emit(magnifyWorldV3, "Deposit")
+          .withArgs(user1.address, user1.address, shareAmount, shareAmount);
+
+        expect(await magnifyWorldV3.balanceOf(user1)).to.equal(shareAmount);
+      });
+
+      it("Should not allow deposits during cooldown period", async function () {
+        const { magnifyWorldV3, mockToken, user1 } = await loadFixture(
+          deployMagnifyWorldV3Fixture
+        );
+
+        // Move time to cooldown period (endTimestamp - loanPeriod)
+        await time.increaseTo(endTimestamp - loanDuration);
+
+        const depositAmount = ethers.parseUnits("100", 6);
+        await mockToken.connect(user1).approve(magnifyWorldV3, depositAmount);
+
+        await expect(
+          magnifyWorldV3.connect(user1).deposit(depositAmount, user1)
+        ).to.be.revertedWithCustomError(magnifyWorldV3, "PoolNotActive");
+      });
     });
 
-    it("Should inherit loan token from V1", async function () {
-      const { magnifyWorldV3, mockToken } = await loadFixture(
-        deployMagnifyWorldV3Fixture
-      );
-      expect(await magnifyWorldV3.asset()).to.equal(
-        await mockToken.getAddress()
-      );
-    });
+    describe("Withdrawals", function () {
+      it("Should allow withdrawals before start time with early exit fee", async function () {
+        const { magnifyWorldV3, mockToken, user1, treasury } =
+          await loadFixture(deployMagnifyWorldV3Fixture);
 
-    it("Should inherit PERMIT2 from V1", async function () {
-      const { magnifyWorldV3, mockPermit2 } = await loadFixture(
-        deployMagnifyWorldV3Fixture
-      );
-      expect(await magnifyWorldV3.permit2()).to.equal(
-        await mockPermit2.getAddress()
-      );
-    });
-  });
+        const depositAmount = ethers.parseUnits("100", 6);
+        await mockToken.connect(user1).approve(magnifyWorldV3, depositAmount);
+        await magnifyWorldV3.connect(user1).deposit(depositAmount, user1);
 
-  describe("V3 Loan Operations", function () {
-    it("Should allow NFT owner to request a loan in their tier", async function () {
-      const { magnifyWorldV3, magnifyWorldV1, mockToken, user1 } =
-        await loadFixture(deployMagnifyWorldV3Fixture);
+        // Early exit fee is 1% (100 basis points)
+        const expectedFee = (depositAmount * BigInt(100)) / BigInt(10000);
+        const expectedWithdraw = depositAmount - expectedFee;
 
-      // Mint NFT to user1 with tier 2
-      await magnifyWorldV1.mintNFT(user1.address, 2);
+        await expect(
+          magnifyWorldV3.connect(user1).withdraw(depositAmount, user1, user1)
+        ).to.changeTokenBalances(
+          mockToken,
+          [user1, treasury],
+          [expectedWithdraw, expectedFee]
+        );
+      });
 
-      // Request loan in tier 2
-      await expect(magnifyWorldV3.connect(user1).requestLoan(2))
-        .to.emit(magnifyWorldV3, "LoanRequested")
-        .withArgs(1, 5_000_000n, user1.address); // Tier 2 amount is 5 tokens
+      it("Should allow redemption after pool ends", async function () {
+        const { magnifyWorldV3, mockToken, user1 } = await loadFixture(
+          deployMagnifyWorldV3Fixture
+        );
 
-      // Check loan details
-      const loan = await magnifyWorldV3.V3Loans(1);
-      expect(loan.amount).to.equal(5_000_000n);
-      expect(loan.isActive).to.be.true;
+        const depositAmount = ethers.parseUnits("100", 6);
+        await mockToken.connect(user1).approve(magnifyWorldV3, depositAmount);
+        await magnifyWorldV3.connect(user1).deposit(depositAmount, user1);
 
-      // Verify token transfer
-      expect(await mockToken.balanceOf(user1.address)).to.equal(5_000_000n);
-    });
+        // Move time past end timestamp
+        await time.increaseTo(endTimestamp + 1);
 
-    it("Should allow NFT owner to request a loan in a lower tier", async function () {
-      const { magnifyWorldV3, magnifyWorldV1, user1 } = await loadFixture(
-        deployMagnifyWorldV3Fixture
-      );
+        await expect(
+          magnifyWorldV3.connect(user1).redeem(depositAmount, user1, user1)
+        ).to.changeTokenBalance(mockToken, user1, depositAmount);
+      });
 
-      // Mint NFT to user1 with tier 2
-      await magnifyWorldV1.mintNFT(user1.address, 2);
+      it("Should not allow withdrawals during active period", async function () {
+        const { magnifyWorldV3, mockToken, user1 } = await loadFixture(
+          deployMagnifyWorldV3Fixture
+        );
 
-      // Request loan in tier 1
-      await expect(magnifyWorldV3.connect(user1).requestLoan(1))
-        .to.emit(magnifyWorldV3, "LoanRequested")
-        .withArgs(1, 1_000_000n, user1.address); // Tier 1 amount is 1 token
-    });
+        const depositAmount = ethers.parseUnits("100", 6);
+        await mockToken.connect(user1).approve(magnifyWorldV3, depositAmount);
+        await magnifyWorldV3.connect(user1).deposit(depositAmount, user1);
 
-    it("Should prevent requesting loan in higher tier", async function () {
-      const { magnifyWorldV3, magnifyWorldV1, user1 } = await loadFixture(
-        deployMagnifyWorldV3Fixture
-      );
+        // Move time to active period
+        await time.increaseTo(startTimestamp + 1);
 
-      // Mint NFT to user1 with tier 1
-      await magnifyWorldV1.mintNFT(user1.address, 1);
+        await expect(
+          magnifyWorldV3.connect(user1).withdraw(depositAmount, user1, user1)
+        ).to.be.revertedWithCustomError(magnifyWorldV3, "NoWithdrawWhenActive");
+      });
 
-      // Attempt to request loan in tier 2
-      await expect(
-        magnifyWorldV3.connect(user1).requestLoan(2)
-      ).to.be.revertedWith("Tier not allowed");
-    });
+      it("Should handle withdrawals with permit2", async function () {
+        const { magnifyWorldV3, mockToken, mockPermit2, user1 } =
+          await loadFixture(deployMagnifyWorldV3Fixture);
 
-    it("Should prevent multiple active loans", async function () {
-      const { magnifyWorldV3, magnifyWorldV1, user1 } = await loadFixture(
-        deployMagnifyWorldV3Fixture
-      );
+        const depositAmount = ethers.parseUnits("100", 6);
 
-      // Mint NFT and get first loan
-      await magnifyWorldV1.mintNFT(user1.address, 1);
-      await magnifyWorldV3.connect(user1).requestLoan(1);
+        // Create mock permit data
+        const permitTransferFrom = {
+          permitted: {
+            token: await mockToken.getAddress(),
+            amount: depositAmount,
+          },
+          nonce: 0,
+          deadline: ethers.MaxUint256,
+        };
 
-      // Attempt second loan
-      await expect(
-        magnifyWorldV3.connect(user1).requestLoan(1)
-      ).to.be.revertedWith("Active loan on V3");
-    });
+        const transferDetails = {
+          to: await magnifyWorldV3.getAddress(),
+          requestedAmount: depositAmount,
+        };
 
-    it("Should prevent loan if active in V1", async function () {
-      const { magnifyWorldV3, magnifyWorldV1, user1 } = await loadFixture(
-        deployMagnifyWorldV3Fixture
-      );
+        // Mock signature (in real scenario this would be signed by the user)
+        const signature = "0x";
 
-      // Mint NFT and get V1 loan
-      await magnifyWorldV1.mintNFT(user1.address, 1);
-      await magnifyWorldV1.connect(user1).requestLoan();
-
-      // Attempt V3 loan
-      await expect(
-        magnifyWorldV3.connect(user1).requestLoan(1)
-      ).to.be.revertedWith("Active loan on V1");
-    });
-  });
-
-  describe("Loan Queries", function () {
-    it("Should correctly return V1 loan details", async function () {
-      const { magnifyWorldV3, magnifyWorldV1, user1 } = await loadFixture(
-        deployMagnifyWorldV3Fixture
-      );
-
-      // Mint NFT and get V1 loan
-      await magnifyWorldV1.mintNFT(user1.address, 1);
-      await magnifyWorldV1.connect(user1).requestLoan();
-
-      const [hasLoan, loanDetails] = await magnifyWorldV3.fetchLoanByAddress(
-        user1.address
-      );
-      expect(hasLoan).to.be.true;
-      expect(loanDetails.amount).to.equal(1_000_000n);
-      expect(loanDetails.isActive).to.be.true;
-    });
-
-    it("Should correctly return V3 loan details", async function () {
-      const { magnifyWorldV3, magnifyWorldV1, user1 } = await loadFixture(
-        deployMagnifyWorldV3Fixture
-      );
-
-      // Mint NFT and get V3 loan
-      await magnifyWorldV1.mintNFT(user1.address, 1);
-      await magnifyWorldV3.connect(user1).requestLoan(1);
-
-      const [hasLoan, loanDetails] = await magnifyWorldV3.fetchLoanByAddress(
-        user1.address
-      );
-      expect(hasLoan).to.be.true;
-      expect(loanDetails.amount).to.equal(1_000_000n);
-      expect(loanDetails.isActive).to.be.true;
-    });
-
-    it("Should return no loan when none active", async function () {
-      const { magnifyWorldV3, user1 } = await loadFixture(
-        deployMagnifyWorldV3Fixture
-      );
-
-      const [hasLoan, loanDetails] = await magnifyWorldV3.fetchLoanByAddress(
-        user1.address
-      );
-      expect(hasLoan).to.be.false;
-      expect(loanDetails.amount).to.equal(0n);
-      expect(loanDetails.isActive).to.be.false;
+        await expect(
+          magnifyWorldV3
+            .connect(user1)
+            .depositWithPermit2(
+              depositAmount,
+              user1,
+              permitTransferFrom,
+              transferDetails,
+              signature
+            )
+        )
+          .to.emit(magnifyWorldV3, "Deposit")
+          .withArgs(user1.address, user1.address, depositAmount, depositAmount);
+      });
     });
   });
 
-  describe("Token Management", function () {
-    it("Should allow owner to withdraw loan tokens", async function () {
-      const { magnifyWorldV3, mockToken, owner } = await loadFixture(
-        deployMagnifyWorldV3Fixture
-      );
+  describe("Loan Operations", function () {
+    describe("Request Loan", function () {
+      it("Should allow eligible users to request a loan", async function () {
+        const { magnifyWorldV3, mockToken, owner } = await loadFixture(
+          deployMagnifyWorldV3Fixture
+        );
 
-      const initialBalance = await mockToken.balanceOf(owner.address);
-      const contractBalance = await mockToken.balanceOf(
-        await magnifyWorldV3.getAddress()
-      );
+        // Move to start time
+        await time.increaseTo(startTimestamp + 1);
 
-      await expect(magnifyWorldV3.withdrawLoanToken())
-        .to.emit(magnifyWorldV3, "LoanTokensWithdrawn")
-        .withArgs(contractBalance);
+        // Fund the contract
+        await mockToken
+          .connect(owner)
+          .approve(magnifyWorldV3, loanAmount * BigInt(2));
+        await magnifyWorldV3
+          .connect(owner)
+          .deposit(loanAmount * BigInt(2), owner);
 
-      expect(await mockToken.balanceOf(owner.address)).to.equal(
-        initialBalance + contractBalance
-      );
+        await expect(magnifyWorldV3.connect(owner).requestLoan())
+          .to.emit(magnifyWorldV3, "LoanRequested")
+          .withArgs(anyValue, owner.address, 0);
+
+        // Verify loan state
+        const loan = await magnifyWorldV3.getActiveLoan(owner.address);
+        expect(loan.borrower).to.equal(owner.address);
+        expect(loan.isActive).to.be.true;
+        expect(loan.isDefault).to.be.false;
+      });
+
+      it("Should not allow loans during warmup period", async function () {
+        const { magnifyWorldV3, owner } = await loadFixture(
+          deployMagnifyWorldV3Fixture
+        );
+
+        await expect(
+          magnifyWorldV3.connect(owner).requestLoan()
+        ).to.be.revertedWithCustomError(magnifyWorldV3, "PoolNotActive");
+      });
+
+      it("Should not allow loans with insufficient tier", async function () {
+        const { magnifyWorldV3, mockToken, user1 } = await loadFixture(
+          deployMagnifyWorldV3Fixture
+        );
+
+        await time.increaseTo(startTimestamp + 1);
+
+        await expect(
+          magnifyWorldV3.connect(user1).requestLoan()
+        ).to.be.revertedWithCustomError(magnifyWorldV3, "TierInsufficient");
+      });
     });
 
-    it("Should prevent non-owner from withdrawing tokens", async function () {
-      const { magnifyWorldV3, user1 } = await loadFixture(
-        deployMagnifyWorldV3Fixture
-      );
+    describe("Repay Loan", function () {
+      it("Should allow loan repayment with permit2", async function () {
+        const { magnifyWorldV3, mockToken, mockPermit2, owner } =
+          await loadFixture(deployMagnifyWorldV3Fixture);
 
-      await expect(
-        magnifyWorldV3.connect(user1).withdrawLoanToken()
-      ).to.be.revertedWithCustomError(
-        magnifyWorldV3,
-        "OwnableUnauthorizedAccount"
-      );
+        // Setup and request loan
+        await time.increaseTo(startTimestamp + 1);
+        await mockToken
+          .connect(owner)
+          .approve(magnifyWorldV3, loanAmount * BigInt(2));
+        await magnifyWorldV3
+          .connect(owner)
+          .deposit(loanAmount * BigInt(2), owner);
+        await magnifyWorldV3.connect(owner).requestLoan();
+
+        // Calculate repayment amount (loan + interest)
+        const interest = (loanAmount * BigInt(loanInterest)) / BigInt(10000);
+        const totalDue = loanAmount + interest;
+
+        // Move time past loan period
+        await time.increaseTo(startTimestamp + loanDuration + 1);
+
+        // Create permit data
+        const permitTransferFrom = {
+          permitted: {
+            token: await mockToken.getAddress(),
+            amount: totalDue,
+          },
+          nonce: 0,
+          deadline: ethers.MaxUint256,
+        };
+
+        const transferDetails = {
+          to: await magnifyWorldV3.getAddress(),
+          requestedAmount: totalDue,
+        };
+
+        const signature = "0x"; // Mock signature
+
+        await expect(
+          magnifyWorldV3
+            .connect(owner)
+            .repayLoanWithPermit2(
+              permitTransferFrom,
+              transferDetails,
+              signature
+            )
+        )
+          .to.emit(magnifyWorldV3, "LoanRepaid")
+          .withArgs(anyValue, owner.address, 0);
+
+        // Verify loan state
+        const loan = await magnifyWorldV3.getActiveLoan(owner.address);
+        expect(loan.isActive).to.be.false;
+      });
     });
 
-    it("Should prevent withdrawal when balance is zero", async function () {
-      const { magnifyWorldV3, mockToken } = await loadFixture(
-        deployMagnifyWorldV3Fixture
-      );
+    describe("Process Outdated Loans", function () {
+      it("Should mark expired loans as defaulted", async function () {
+        const { magnifyWorldV3, mockToken, owner } = await loadFixture(
+          deployMagnifyWorldV3Fixture
+        );
 
-      // Transfer all tokens out of contract
-      const balance = await mockToken.balanceOf(
-        await magnifyWorldV3.getAddress()
-      );
-      await mockToken.transfer(await magnifyWorldV3.owner(), balance);
+        // Setup and request loan
+        await time.increaseTo(startTimestamp + 1);
+        await mockToken
+          .connect(owner)
+          .approve(magnifyWorldV3, loanAmount * BigInt(2));
+        await magnifyWorldV3
+          .connect(owner)
+          .deposit(loanAmount * BigInt(2), owner);
+        await magnifyWorldV3.connect(owner).requestLoan();
 
-      await expect(magnifyWorldV3.withdrawLoanToken()).to.be.revertedWith(
-        "No funds available"
-      );
+        // Move time past loan period
+        await time.increaseTo(startTimestamp + loanDuration + SECONDS_PER_DAY);
+
+        await expect(magnifyWorldV3.processOutdatedLoans())
+          .to.emit(magnifyWorldV3, "LoanDefaulted")
+          .withArgs(anyValue, owner.address, 0);
+
+        // Verify loan state
+        const loanHistory = await magnifyWorldV3.getLoanHistory(owner.address);
+        expect(loanHistory[0].isDefault).to.be.true;
+        expect(loanHistory[0].isActive).to.be.false;
+      });
+
+      it("Should handle multiple expired loans", async function () {
+        const { magnifyWorldV3, magnifyWorldSoulboundNFT, mockToken, owner, users } = await loadFixture(
+          deployMagnifyWorldV3Fixture
+        );
+
+        // Setup for multiple users
+        await time.increaseTo(startTimestamp + 1);
+        const testUser = users[0];
+        await magnifyWorldSoulboundNFT.connect(owner).mintNFT(testUser.address, tier);
+
+        // Fund contract
+        await mockToken
+          .connect(owner)
+          .approve(magnifyWorldV3, loanAmount * BigInt(4));
+        await magnifyWorldV3
+          .connect(owner)
+          .deposit(loanAmount * BigInt(4), owner);
+
+        // Request loans
+        await magnifyWorldV3.connect(owner).requestLoan();
+        await magnifyWorldV3.connect(testUser).requestLoan();
+
+        // Move time past loan period
+        await time.increaseTo(startTimestamp + loanDuration + SECONDS_PER_DAY);
+
+        // Process defaults
+        await magnifyWorldV3.processOutdatedLoans();
+
+        // Verify both loans are defaulted
+        const activeLoans = await magnifyWorldV3.getAllActiveLoans();
+        expect(activeLoans.length).to.equal(0);
+      });
+    });
+
+    describe("Repay Defaulted Loan", function () {
+      it("Should allow repayment of defaulted loan with permit2", async function () {
+        const { magnifyWorldV3, mockToken, owner } = await loadFixture(
+          deployMagnifyWorldV3Fixture
+        );
+
+        // Setup and request loan
+        await time.increaseTo(startTimestamp + 1);
+        await mockToken
+          .connect(owner)
+          .approve(magnifyWorldV3, loanAmount * BigInt(2));
+        await magnifyWorldV3
+          .connect(owner)
+          .deposit(loanAmount * BigInt(2), owner);
+        await magnifyWorldV3.connect(owner).requestLoan();
+
+        // Move time past loan period and process default
+        await time.increaseTo(startTimestamp + loanDuration + SECONDS_PER_DAY);
+        await magnifyWorldV3.processOutdatedLoans();
+
+        // Calculate total due (loan + interest + penalty)
+        const interest = (loanAmount * BigInt(loanInterest)) / BigInt(10000);
+        const penalty = (loanAmount * BigInt(1000)) / BigInt(10000); // 10% penalty
+        const totalDue = loanAmount + interest + penalty;
+
+        // Create permit data
+        const permitTransferFrom = {
+          permitted: {
+            token: await mockToken.getAddress(),
+            amount: totalDue,
+          },
+          nonce: 0,
+          deadline: ethers.MaxUint256,
+        };
+
+        const transferDetails = {
+          to: await magnifyWorldV3.getAddress(),
+          requestedAmount: totalDue,
+        };
+
+        const signature = "0x"; // Mock signature
+
+        await expect(
+          magnifyWorldV3
+            .connect(owner)
+            .repayDefaultedLoanWithPermit2(
+              0,
+              permitTransferFrom,
+              transferDetails,
+              signature
+            )
+        )
+          .to.emit(magnifyWorldV3, "LoanDefaultRepaid")
+          .withArgs(anyValue, owner.address, 0);
+      });
     });
   });
 });
