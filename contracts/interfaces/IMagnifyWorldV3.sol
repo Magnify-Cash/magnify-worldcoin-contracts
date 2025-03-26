@@ -50,6 +50,8 @@ interface IMagnifyWorldV3 {
         view
         returns (LoanData[] memory allActiveLoans);
 
+    function liquidity() external view returns (uint256);
+
     function getTotalBorrows() external view returns (uint256);
 
     function getTotalDefaults() external view returns (uint256);

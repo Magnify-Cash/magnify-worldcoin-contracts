@@ -7,6 +7,10 @@ import {Errors} from "./errors/Errors.sol";
 import {IMagnifyWorldSoulboundNFT} from "./interfaces/IMagnifyWorldSoulboundNFT.sol";
 import {IMagnifyWorldV3} from "./interfaces/IMagnifyWorldV3.sol";
 
+/// @title Magnify World Soulbound NFT
+/// @author Jolly-Walker
+/// @notice Soulbound NFTs tracking user loan history and credit score
+/// @dev Also tracks all magnify lending pools
 contract MagnifyWorldSoulboundNFT is
     ERC721Upgradeable,
     OwnableUpgradeable,
@@ -134,6 +138,14 @@ contract MagnifyWorldSoulboundNFT is
             totalBorrowed += magnifyPools[i].getTotalBorrows();
         }
         return totalBorrowed;
+    }
+
+    function getTotalLiquidity() external view returns (uint256) {
+        uint256 totalLiquidity;
+        for (uint256 i = 0; i < magnifyPools.length; i++) {
+            totalLiquidity += magnifyPools[i].liquidity();
+        }
+        return totalLiquidity;
     }
 
     function getTotalDefaults() external view returns (uint256) {

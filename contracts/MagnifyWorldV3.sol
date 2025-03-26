@@ -27,10 +27,10 @@ contract MagnifyWorldV3 is
     using Math for uint256;
     using SafeERC20 for IERC20;
 
-    IMagnifyWorldSoulboundNFT public soulboundNFT;
-    IPermit2 public permit2;
     uint256 internal totalLoanAmount;
     uint256 internal totalDefaults;
+    IMagnifyWorldSoulboundNFT public soulboundNFT;
+    IPermit2 public permit2;
     uint256 public loanAmount;
     uint256 public loanPeriod;
     uint256 public startTimestamp;
@@ -286,7 +286,6 @@ contract MagnifyWorldV3 is
     }
 
     function checkNFTValid(uint256 tokenId) internal view {
-        // get tier and NFT data
         IMagnifyWorldSoulboundNFT.NFTData memory data = soulboundNFT.getNFTData(
             tokenId
         );
@@ -532,6 +531,10 @@ contract MagnifyWorldV3 is
     /// @inheritdoc ERC4626Upgradeable
     function totalAssets() public view override returns (uint256) {
         return IERC20(asset()).balanceOf(address(this)) + totalLoanAmount;
+    }
+
+    function liquidity() public view returns (uint256) {
+        return IERC20(asset()).balanceOf(address(this));
     }
 
     function getTotalBorrows() external view returns (uint256) {
