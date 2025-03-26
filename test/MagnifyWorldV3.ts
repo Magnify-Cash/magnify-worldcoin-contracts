@@ -5,7 +5,6 @@ import {
 import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import { expect } from "chai";
 import { ethers, upgrades } from "hardhat";
-import { Contract, Signer } from "ethers";
 
 const NFT_NAME = "Magnify World Soulbound NFT";
 const NFT_SYMBOL = "MAGNFT";
@@ -376,14 +375,20 @@ describe("MagnifyWorldV3", function () {
       });
 
       it("Should handle multiple expired loans", async function () {
-        const { magnifyWorldV3, magnifyWorldSoulboundNFT, mockToken, owner, users } = await loadFixture(
-          deployMagnifyWorldV3Fixture
-        );
+        const {
+          magnifyWorldV3,
+          magnifyWorldSoulboundNFT,
+          mockToken,
+          owner,
+          users,
+        } = await loadFixture(deployMagnifyWorldV3Fixture);
 
         // Setup for multiple users
         await time.increaseTo(startTimestamp + 1);
         const testUser = users[0];
-        await magnifyWorldSoulboundNFT.connect(owner).mintNFT(testUser.address, tier);
+        await magnifyWorldSoulboundNFT
+          .connect(owner)
+          .mintNFT(testUser.address, tier);
 
         // Fund contract
         await mockToken

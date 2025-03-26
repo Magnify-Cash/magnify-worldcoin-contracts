@@ -28,7 +28,7 @@ const config: HardhatUserConfig = {
   networks: {
     worldChainTestnet: {
       chainId: 4801,
-      url: "https://worldchain-sepolia.g.alchemy.com/v2/Gpk_py-r1-t6krNnNdpMntaAxXb3GfUq",
+      url: process.env.WORLD_CHAIN_SEPOLIA_RPC,
       accounts: [process.env.WALLET_PRIVATE_KEY],
       gasPrice: 1100250,
     },
@@ -43,8 +43,8 @@ const config: HardhatUserConfig = {
   },
   etherscan: {
     apiKey: {
-      worldchainSepolia: "8S3ECNJDHDXPKV32Y4Q1AZ2M8Q78TGP5CG",
-      worldchain: "8S3ECNJDHDXPKV32Y4Q1AZ2M8Q78TGP5CG",
+      worldchainSepolia: "NNWYYC7T81E1CAWHZ6WG22MYM2988BR6X3",
+      worldchain: process.env.WORLD_SCAN_KEY || "",
     },
     customChains: [
       {
