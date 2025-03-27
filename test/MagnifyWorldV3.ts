@@ -476,4 +476,144 @@ describe("MagnifyWorldV3", function () {
       });
     });
   });
+
+  describe("Additional Vault Operations", function () {
+    describe("Edge Cases", function () {
+      // it("Should revert deposit with zero amount", async function () {
+      //   const { magnifyWorldV3, user1 } = await loadFixture(
+      //     deployMagnifyWorldV3Fixture
+      //   );
+  
+      //   await expect(
+      //     magnifyWorldV3.connect(user1).deposit(0, user1.address)
+      //   ).to.be.revertedWith("ERC4626: deposit zero assets");
+      // });
+  
+      // it("Should revert mint with zero shares", async function () {
+      //   const { magnifyWorldV3, user1 } = await loadFixture(
+      //     deployMagnifyWorldV3Fixture
+      //   );
+  
+      //   await expect(
+      //     magnifyWorldV3.connect(user1).mint(0, user1.address)
+      //   ).to.be.revertedWith("ERC4626: mint zero shares");
+      // });
+  
+      it("Should revert withdrawal with insufficient balance", async function () {
+        const { magnifyWorldV3, mockToken, user1 } = await loadFixture(
+          deployMagnifyWorldV3Fixture
+        );
+  
+        const depositAmount = ethers.parseUnits("100", 6);
+        await mockToken.connect(user1).approve(magnifyWorldV3, depositAmount);
+        await magnifyWorldV3.connect(user1).deposit(depositAmount, user1);
+  
+        const excessAmount = depositAmount + BigInt(1);
+        await expect(
+          magnifyWorldV3.connect(user1).withdraw(excessAmount, user1, user1)
+        ).to.be.revertedWithCustomError(
+          magnifyWorldV3,
+          "ERC4626ExceededMaxWithdraw"
+        );
+      });
+    });
+  });
+  
+  describe("Additional Loan Operations", function () {
+    describe("Edge Cases", function () {
+      it("Should revert loan request with insufficient liquidity", async function () {
+        const { magnifyWorldV3, owner } = await loadFixture(
+          deployMagnifyWorldV3Fixture
+        );
+  
+        // Move to start time
+        await time.increaseTo(startTimestamp + 1);
+  
+        await expect(
+          magnifyWorldV3.connect(owner).requestLoan()
+        ).to.be.revertedWithCustomError(
+          magnifyWorldV3,
+          "InsufficientLiquidity"
+        );
+      });
+  
+      it("Should revert multiple loan requests from same user", async function () {
+        const { magnifyWorldV3, mockToken, owner } = await loadFixture(
+          deployMagnifyWorldV3Fixture
+        );
+  
+        // Move to start time
+        await time.increaseTo(startTimestamp + 1);
+  
+        // Fund the contract
+        await mockToken
+          .connect(owner)
+          .approve(magnifyWorldV3, loanAmount * BigInt(2));
+        await magnifyWorldV3
+          .connect(owner)
+          .deposit(loanAmount * BigInt(2), owner);
+  
+        // First loan request should succeed
+        await magnifyWorldV3.connect(owner).requestLoan();
+  
+        // Second loan request should fail
+        await expect(
+          magnifyWorldV3.connect(owner).requestLoan()
+        ).to.be.revertedWithCustomError(magnifyWorldV3, "LoanActive");
+      });
+  
+      it("Should revert loan repayment with insufficient amount", async function () {
+        const { magnifyWorldV3, mockToken, mockPermit2, owner } = await loadFixture(
+          deployMagnifyWorldV3Fixture
+        );
+  
+        // Setup and request loan
+        await time.increaseTo(startTimestamp + 1);
+        await mockToken
+          .connect(owner)
+          .approve(magnifyWorldV3, loanAmount * BigInt(2));
+        await magnifyWorldV3
+          .connect(owner)
+          .deposit(loanAmount * BigInt(2), owner);
+        await magnifyWorldV3.connect(owner).requestLoan();
+  
+        const insufficientAmount = loanAmount / BigInt(2);
+        const permitTransferFrom = {
+          permitted: {
+            token: await mockToken.getAddress(),
+            amount: insufficientAmount,
+          },
+          nonce: 0,
+          deadline: ethers.MaxUint256,
+        };
+  
+        const transferDetails = {
+          to: await magnifyWorldV3.getAddress(),
+          requestedAmount: insufficientAmount,
+        };
+  
+        await expect(
+          magnifyWorldV3
+            .connect(owner)
+            .repayLoanWithPermit2(
+              permitTransferFrom,
+              transferDetails,
+              "0x" // Mock signature
+            )
+        ).to.be.revertedWithCustomError(
+          magnifyWorldV3,
+          "PermitInvalidAmount"
+        );
+      });
+  
+      it("Should handle processing outdated loans with empty array", async function () {
+        const { magnifyWorldV3 } = await loadFixture(
+          deployMagnifyWorldV3Fixture
+        );
+  
+        // Should not revert
+        await expect(magnifyWorldV3.processOutdatedLoans()).to.not.be.reverted;
+      });
+    });
+  });
 });
